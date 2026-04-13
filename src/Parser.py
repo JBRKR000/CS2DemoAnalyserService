@@ -88,7 +88,31 @@ def _hash_file(path: Path) -> str:
     return hasher.hexdigest()
 
 
+# awpy v2 exposes kills, damages, etc. as cached properties.
+# They only land in __dict__ after first access, so we must touch
+# them explicitly before iterating __dict__ for pickling.
+_AWPY_V2_PROPERTIES = [
+    "kills",
+    "damages",
+    "shots",
+    "bomb",
+    "smokes",
+    "infernos",
+    "grenades",
+    "footsteps",
+    "ticks",
+    "rounds",
+]
+
+
 def _pickleable_state(demo: Demo) -> dict[str, Any]:
+    # Force-access all cached properties so they appear in __dict__.
+    for prop in _AWPY_V2_PROPERTIES:
+        try:
+            getattr(demo, prop)
+        except Exception:
+            pass
+
     state: dict[str, Any] = {}
     for key, value in demo.__dict__.items():
         if key == "parser":
@@ -155,13 +179,27 @@ def get_demo(
         cache_key = _hash_file(source_path)
 
     path_to_cache = _cache_path(cache_directory, cache_key)
+
     if path_to_cache.exists() and not force_reparse:
         payload = _load_cache(path_to_cache)
-        if delete_source and source_path is not None and source_path.exists():
-            source_path.unlink(missing_ok=True)
-        demo_obj = _to_cached_demo(payload["state"])
-        logger.info("Loaded parsed demo from cache.")
-        return (demo_obj, cache_key) if return_cache_key else demo_obj
+        state = payload["state"]
+
+        # Invalidate stale cache that is missing kills/damages (parsed before
+        # the cached-property fix). Force a re-parse automatically.
+        if "kills" not in state or "damages" not in state:
+            logger.warning(
+                "Cache is missing kills/damages (stale format). Re-parsing demo."
+            )
+            if source_path is None or not source_path.exists():
+                raise FileNotFoundError(
+                    "Stale cache detected but demo file is missing — cannot re-parse."
+                )
+        else:
+            if delete_source and source_path is not None and source_path.exists():
+                source_path.unlink(missing_ok=True)
+            demo_obj = _to_cached_demo(state)
+            logger.info("Loaded parsed demo from cache.")
+            return (demo_obj, cache_key) if return_cache_key else demo_obj
 
     if source_path is None or not source_path.exists():
         raise FileNotFoundError("Demo file does not exist and cache is missing.")
@@ -201,9 +239,13 @@ def cache_demo_from_bytes(
 
     if path_to_cache.exists() and not force_reparse:
         payload = _load_cache(path_to_cache)
-        demo_obj = _to_cached_demo(payload["state"])
-        logger.info("Loaded parsed demo from cache.")
-        return (demo_obj, cache_key) if return_cache_key else demo_obj
+        state = payload["state"]
+        if "kills" not in state or "damages" not in state:
+            logger.warning("Cache is missing kills/damages (stale format). Re-parsing demo.")
+        else:
+            demo_obj = _to_cached_demo(state)
+            logger.info("Loaded parsed demo from cache.")
+            return (demo_obj, cache_key) if return_cache_key else demo_obj
 
     tmp_path: Path | None = None
     try:
