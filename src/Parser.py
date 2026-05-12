@@ -103,6 +103,12 @@ _AWPY_V2_PROPERTIES = [
     "ticks",
     "rounds",
 ]
+_REQUESTED_PLAYER_PROPS = [
+    "current_equip_value",
+    "cash_spent_this_round",
+    "armor_value",
+    "active_weapon",
+]
 
 
 def _pickleable_state(demo: Demo) -> dict[str, Any]:
@@ -152,7 +158,7 @@ def _parse_state_from_path(demo_path: Path) -> dict[str, Any]:
     progress = _ParseProgress()
     progress.start()
     try:
-        demo.parse()
+        demo.parse(player_props=_REQUESTED_PLAYER_PROPS)
     except Exception:
         progress.finish(success=False)
         raise
@@ -186,9 +192,16 @@ def get_demo(
 
         # Invalidate stale cache that is missing kills/damages (parsed before
         # the cached-property fix). Force a re-parse automatically.
-        if "kills" not in state or "damages" not in state:
+        ticks_df = state.get("ticks")
+        missing_economy_props = (
+            ticks_df is None
+            or not hasattr(ticks_df, "columns")
+            or "current_equip_value" not in ticks_df.columns
+        )
+
+        if "kills" not in state or "damages" not in state or missing_economy_props:
             logger.warning(
-                "Cache is missing kills/damages (stale format). Re-parsing demo."
+                "Cache is stale (missing kills/damages or economy tick props). Re-parsing demo."
             )
             if source_path is None or not source_path.exists():
                 raise FileNotFoundError(
@@ -240,8 +253,16 @@ def cache_demo_from_bytes(
     if path_to_cache.exists() and not force_reparse:
         payload = _load_cache(path_to_cache)
         state = payload["state"]
-        if "kills" not in state or "damages" not in state:
-            logger.warning("Cache is missing kills/damages (stale format). Re-parsing demo.")
+        ticks_df = state.get("ticks")
+        missing_economy_props = (
+            ticks_df is None
+            or not hasattr(ticks_df, "columns")
+            or "current_equip_value" not in ticks_df.columns
+        )
+        if "kills" not in state or "damages" not in state or missing_economy_props:
+            logger.warning(
+                "Cache is stale (missing kills/damages or economy tick props). Re-parsing demo."
+            )
         else:
             demo_obj = _to_cached_demo(state)
             logger.info("Loaded parsed demo from cache.")

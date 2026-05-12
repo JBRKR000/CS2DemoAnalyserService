@@ -82,7 +82,32 @@ def main() -> None:
         verbose=True,
     )
     logger.info("Demo ready for analysis | type=%s", type(demo_for_analysis).__name__)
-    analyse_demo(demo_for_analysis)
+    analysis = analyse_demo(demo_for_analysis, match_id=cache_key)
+
+    player = analysis.get("selected_player_stats", {}) or {}
+    econ = analysis.get("economy_summary_selected", {}) or {}
+    clutch = analysis.get("clutch_summary_selected", {}) or {}
+    benchmark_evals = analysis.get("benchmark_evaluations", {}) or {}
+    feedback = analysis.get("feedback", []) or []
+
+    logger.info(
+        "Selected player: %s (%s)",
+        player.get("name", "Unknown"),
+        player.get("steamid", "Unknown"),
+    )
+    logger.info("Economy summary (selected): %s", econ)
+    logger.info("Clutch summary (selected): %s", clutch)
+    logger.info("Benchmark evaluations (selected): %s", benchmark_evals)
+    logger.info("Feedback tips count: %d", len(feedback))
+    for idx, tip in enumerate(feedback, start=1):
+        logger.info(
+            "Tip %d | [%s/%s] %s | %s",
+            idx,
+            tip.get("severity", ""),
+            tip.get("category", ""),
+            tip.get("title", ""),
+            tip.get("message", ""),
+        )
 
 
 if __name__ == "__main__":
