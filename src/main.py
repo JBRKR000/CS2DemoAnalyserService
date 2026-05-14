@@ -38,6 +38,12 @@ CACHE_DIR = BASE_DIR / ".cache"
 CACHE_KEY_PATH = BASE_DIR / "last_cache_key.txt"
 
 
+def _looks_like_sha256(value: str | None) -> bool:
+    if value is None or len(value) != 64:
+        return False
+    return all(ch in "0123456789abcdefABCDEF" for ch in value)
+
+
 def _format_float(value: object, digits: int = 2) -> str:
     if isinstance(value, (int, float)):
         return f"{float(value):.{digits}f}"
@@ -127,6 +133,8 @@ def main() -> None:
         logger.info("Saved cache key to %s", CACHE_KEY_PATH)
     elif CACHE_KEY_PATH.exists():
         cache_key = CACHE_KEY_PATH.read_text(encoding="utf-8").strip()
+        if _looks_like_sha256(cache_key):
+            match_id = cache_key
         logger.info("Using cache key from %s", CACHE_KEY_PATH)
     else:
         cache_key = _pick_latest_cache_key()
@@ -135,6 +143,8 @@ def main() -> None:
                 "No source demo and no cache found. Put a .dem in Demos/ or create cache first."
             )
         CACHE_KEY_PATH.write_text(cache_key, encoding="utf-8")
+        if _looks_like_sha256(cache_key):
+            match_id = cache_key
         logger.info("last_cache_key.txt missing, using latest cache key: %s", cache_key)
 
     demo_for_analysis = load_demo_for_analysis(
