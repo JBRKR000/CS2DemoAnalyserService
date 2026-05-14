@@ -4,7 +4,7 @@ from pathlib import Path
 import colorlog
 
 from Analyser import load_demo_for_analysis, analyse_demo
-from Parser import get_demo
+from Parser import compute_file_sha256, get_demo
 
 
 def configure_logging(level: int = logging.INFO) -> None:
@@ -38,6 +38,65 @@ CACHE_DIR = BASE_DIR / ".cache"
 CACHE_KEY_PATH = BASE_DIR / "last_cache_key.txt"
 
 
+def _format_float(value: object, digits: int = 2) -> str:
+    if isinstance(value, (int, float)):
+        return f"{float(value):.{digits}f}"
+    return "-"
+
+
+def _log_benchmark_block(title: str, evaluations: dict) -> None:
+    if not isinstance(evaluations, dict) or not evaluations:
+        logger.info("%s: no data", title)
+        return
+
+    metric_order = [
+        "adr",
+        "kast",
+        "kpr",
+        "hs_percent",
+        "opening_duel_win_pct",
+        "full_buy_win_rate",
+        "force_win_rate",
+        "clutch_win_rate",
+    ]
+
+    metric_labels = {
+        "adr": "ADR",
+        "kast": "KAST",
+        "kpr": "KPR",
+        "hs_percent": "HS%",
+        "opening_duel_win_pct": "OPEN%",
+        "full_buy_win_rate": "FULLBUY%",
+        "force_win_rate": "FORCE%",
+        "clutch_win_rate": "CLUTCH%",
+    }
+
+    logger.info("%s", title)
+    logger.info("%-10s | %-9s | %-8s | %-7s | %-12s | %-12s", "Metric", "Value", "Percentyl", "Rating", "Kontekst", "Powod")
+    logger.info("%s", "-" * 76)
+
+    for metric in metric_order:
+        evaluation = evaluations.get(metric)
+        if not isinstance(evaluation, dict):
+            continue
+
+        value = _format_float(evaluation.get("value"))
+        percentile_raw = evaluation.get("percentile")
+        percentile = _format_float(percentile_raw, 1) if percentile_raw is not None else "-"
+        rating = str(evaluation.get("rating", "-"))
+        context = str(evaluation.get("context", "-"))
+        reason = str(evaluation.get("reason", "-")) if evaluation.get("reason") is not None else "-"
+        logger.info(
+            "%-10s | %-9s | %-8s | %-7s | %-12s | %-12s",
+            metric_labels.get(metric, metric),
+            value,
+            percentile,
+            rating,
+            context,
+            reason,
+        )
+
+
 def _pick_latest_cache_key() -> str | None:
     if not CACHE_DIR.exists():
         return None
@@ -50,8 +109,10 @@ def _pick_latest_cache_key() -> str | None:
 
 def main() -> None:
     cache_key: str | None = None
+    match_id: str | None = None
 
     if DEMO_PATH.exists():
+        match_id = compute_file_sha256(DEMO_PATH)
         result = get_demo(
             demo_path=DEMO_PATH,
             cache_dir=str(CACHE_DIR),
@@ -82,12 +143,17 @@ def main() -> None:
         verbose=True,
     )
     logger.info("Demo ready for analysis | type=%s", type(demo_for_analysis).__name__)
-    analysis = analyse_demo(demo_for_analysis, match_id=cache_key)
+    if match_id is None:
+        logger.info("No source .dem file available; benchmark append will be skipped for this analysis.")
+    analysis = analyse_demo(demo_for_analysis, match_id=match_id)
 
     player = analysis.get("selected_player_stats", {}) or {}
     econ = analysis.get("economy_summary_selected", {}) or {}
     clutch = analysis.get("clutch_summary_selected", {}) or {}
     benchmark_evals = analysis.get("benchmark_evaluations", {}) or {}
+    benchmark_all = analysis.get("benchmark_evaluations_all", {}) or {}
+    benchmark_ct = analysis.get("benchmark_evaluations_ct", {}) or {}
+    benchmark_t = analysis.get("benchmark_evaluations_t", {}) or {}
     feedback = analysis.get("feedback", []) or []
 
     logger.info(
@@ -97,7 +163,15 @@ def main() -> None:
     )
     logger.info("Economy summary (selected): %s", econ)
     logger.info("Clutch summary (selected): %s", clutch)
-    logger.info("Benchmark evaluations (selected): %s", benchmark_evals)
+    logger.info(
+        "Benchmark pool: source=%s before=%s after=%s",
+        analysis.get("benchmark_pool_source", "-"),
+        analysis.get("benchmark_pool_size_before_append", "-"),
+        analysis.get("benchmark_pool_size_after_append", "-"),
+    )
+    _log_benchmark_block("Benchmark evaluations (ALL)", benchmark_all if benchmark_all else benchmark_evals)
+    _log_benchmark_block("Benchmark evaluations (CT)", benchmark_ct)
+    _log_benchmark_block("Benchmark evaluations (T)", benchmark_t)
     logger.info("Feedback tips count: %d", len(feedback))
     for idx, tip in enumerate(feedback, start=1):
         logger.info(

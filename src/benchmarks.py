@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import math
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
 DEFAULT_BENCHMARKS_PATH = "src/benchmarks/local_benchmarks.json"
+DEFAULT_ANALYZED_MATCHES_PATH = "src/benchmarks/analyzed_matches.json"
 SCHEMA_VERSION = 1
 
 KNOWN_METRICS = {
@@ -55,6 +57,8 @@ def _resolve_path(path: str) -> Path:
         return p
     if path == DEFAULT_BENCHMARKS_PATH:
         return Path(__file__).resolve().parent / "benchmarks" / "local_benchmarks.json"
+    if path == DEFAULT_ANALYZED_MATCHES_PATH:
+        return Path(__file__).resolve().parent / "benchmarks" / "analyzed_matches.json"
     return p
 
 
@@ -103,6 +107,51 @@ def save_benchmark_samples(samples: list[dict], path: str = DEFAULT_BENCHMARKS_P
     p = _resolve_path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(samples, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def load_analyzed_matches(path: str = DEFAULT_ANALYZED_MATCHES_PATH) -> dict:
+    try:
+        p = _resolve_path(path)
+        if not p.exists():
+            return {"matches": {}}
+        payload = json.loads(p.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return {"matches": {}}
+        matches = payload.get("matches")
+        if not isinstance(matches, dict):
+            payload["matches"] = {}
+        return payload
+    except Exception:
+        return {"matches": {}}
+
+
+def save_analyzed_matches(registry: dict, path: str = DEFAULT_ANALYZED_MATCHES_PATH) -> None:
+    p = _resolve_path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if not isinstance(registry.get("matches"), dict):
+        registry["matches"] = {}
+    p.write_text(json.dumps(registry, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def is_match_analyzed(match_id: str, registry: dict) -> bool:
+    matches = registry.get("matches") if isinstance(registry, dict) else None
+    return isinstance(matches, dict) and str(match_id) in matches
+
+
+def mark_match_analyzed(
+    match_id: str,
+    metadata: dict,
+    path: str = DEFAULT_ANALYZED_MATCHES_PATH,
+) -> None:
+    registry = load_analyzed_matches(path=path)
+    matches = registry.setdefault("matches", {})
+    if not isinstance(matches, dict):
+        registry["matches"] = {}
+        matches = registry["matches"]
+    entry = dict(metadata)
+    entry["analyzed_at"] = datetime.now(timezone.utc).isoformat()
+    matches[str(match_id)] = entry
+    save_analyzed_matches(registry, path=path)
 
 
 def make_match_samples(

@@ -5,7 +5,15 @@ from typing import Any
 import polars as pl
 
 from Parser import load_cached_demo
-from benchmarks import append_match_samples, evaluate_player, load_benchmark_samples, make_contextual_match_samples
+from benchmarks import (
+    append_match_samples,
+    evaluate_player,
+    is_match_analyzed,
+    load_analyzed_matches,
+    load_benchmark_samples,
+    make_contextual_match_samples,
+    mark_match_analyzed,
+)
 from coach_metrics import _damages_df, _kills_df, _safe_df, build_raw_overall_stats
 from sectors.clutch import build_clutch_stats
 from sectors.economy import build_economy_stats
@@ -190,8 +198,12 @@ def _build_benchmark_player_rows(
             )
             opening_participants = pl.concat(
                 [
-                    opening_kills.with_columns(pl.lit(0).cast(pl.Int64).alias("opening_duels_lost")),
-                    opening_deaths.with_columns(pl.lit(0).cast(pl.Int64).alias("opening_duels_won")),
+                    opening_kills.with_columns(pl.lit(0).cast(pl.Int64).alias("opening_duels_lost")).select(
+                        ["steamid", "side", "opening_duels_won", "opening_duels_lost"]
+                    ),
+                    opening_deaths.with_columns(pl.lit(0).cast(pl.Int64).alias("opening_duels_won")).select(
+                        ["steamid", "side", "opening_duels_won", "opening_duels_lost"]
+                    ),
                 ],
                 how="vertical_relaxed",
             )
@@ -485,16 +497,35 @@ def analyse_demo(demo, player_selector: str | int | None = None, match_id: str |
     side_rows = _build_benchmark_player_rows(demo)
     ct_rows = [row for row in side_rows if str(row.get("side", "")).upper() == "CT"]
     t_rows = [row for row in side_rows if str(row.get("side", "")).upper() == "T"]
+    sample_match_id = match_id or "temporary_unpersisted_match"
     match_samples = make_contextual_match_samples(
-        match_id=match_id or f"{map_name or 'unknown'}_{rounds_played}",
+        match_id=sample_match_id,
         map_name=map_name,
         round_count=rounds_played if rounds_played > 0 else None,
         ct_player_stats=ct_rows,
         t_player_stats=t_rows,
     )
     historical_samples = load_benchmark_samples()
-    evaluation_samples = historical_samples if historical_samples else match_samples
-    benchmark_pool_source = "historical" if historical_samples else "current_match_fallback"
+    evaluation_samples = [
+        sample
+        for sample in historical_samples
+        if match_id is None or str(sample.get("match_id")) != str(match_id)
+    ]
+    benchmark_pool_source = "historical"
+    analyzed_registry = load_analyzed_matches()
+    match_already_analyzed = bool(match_id) and is_match_analyzed(str(match_id), analyzed_registry)
+
+    def _selected_match_sample(side: str) -> dict[str, Any]:
+        side_upper = side.upper()
+        return next(
+            (
+                sample
+                for sample in match_samples
+                if str(sample.get("steamid")) == str(selected_steamid)
+                and str(sample.get("side", "ALL")).upper() == side_upper
+            ),
+            {},
+        )
 
     def _selected_side_row(side: str) -> dict[str, Any]:
         return next(
@@ -509,41 +540,29 @@ def analyse_demo(demo, player_selector: str | int | None = None, match_id: str |
 
     def _evaluate_for_side(side: str) -> dict[str, Any]:
         side_upper = side.upper()
-        if side_upper == "ALL":
-            metrics = {
-                "adr": selected_player_stats.get("adr"),
-                "kast": selected_player_stats.get("kast"),
-                "hs_percent": selected_player_stats.get("hs_percent"),
-                "kpr": selected_player_stats.get("kpr"),
-                "full_buy_win_rate": economy_summary_row.get("full_buy_win_rate"),
-                "force_win_rate": economy_summary_row.get("force_win_rate"),
-                "clutch_win_rate": clutch_summary_row.get("win_rate"),
-            }
-            counts = {
-                "kills": selected_player_stats.get("kills"),
-                "full_buy_rounds": economy_summary_row.get("full_buy_rounds"),
-                "force_rounds": economy_summary_row.get("force_rounds"),
-                "clutch_attempts": clutch_summary_row.get("attempts"),
-                "opening_duels": selected_player_stats.get("opening_duels"),
-            }
-            rounds = selected_player_stats.get("rounds_played")
-        else:
+        sample = _selected_match_sample(side_upper)
+        metrics = sample.get("metrics") if isinstance(sample.get("metrics"), dict) else {}
+        counts = sample.get("counts") if isinstance(sample.get("counts"), dict) else {}
+        rounds = sample.get("rounds_played")
+
+        if not metrics and side_upper != "ALL":
             row = _selected_side_row(side_upper)
             metrics = {
                 "adr": row.get("adr"),
                 "kast": row.get("kast"),
                 "hs_percent": row.get("hs_percent"),
                 "kpr": row.get("kpr"),
+                "opening_duel_win_pct": row.get("opening_duel_win_pct"),
                 "full_buy_win_rate": row.get("full_buy_win_rate"),
                 "force_win_rate": row.get("force_win_rate"),
                 "clutch_win_rate": row.get("clutch_win_rate"),
             }
             counts = {
                 "kills": row.get("kills"),
+                "opening_duels": row.get("opening_duels"),
                 "full_buy_rounds": row.get("full_buy_rounds"),
                 "force_rounds": row.get("force_rounds"),
                 "clutch_attempts": row.get("clutch_attempts"),
-                "opening_duels": row.get("opening_duels"),
             }
             rounds = row.get("rounds_played")
 
@@ -560,7 +579,19 @@ def analyse_demo(demo, player_selector: str | int | None = None, match_id: str |
     benchmark_evaluations_ct = _evaluate_for_side("CT")
     benchmark_evaluations_t = _evaluate_for_side("T")
     benchmark_evaluations = benchmark_evaluations_all
-    all_samples = append_match_samples(match_samples)
+    samples_appended = False
+    all_samples = historical_samples
+    if match_id and not match_already_analyzed:
+        all_samples = append_match_samples(match_samples)
+        samples_appended = True
+        mark_match_analyzed(
+            str(match_id),
+            {
+                "map_name": map_name,
+                "round_count": rounds_played,
+                "samples_written": len(match_samples),
+            },
+        )
 
     feedback = generate_feedback(
         {
@@ -591,6 +622,8 @@ def analyse_demo(demo, player_selector: str | int | None = None, match_id: str |
         "benchmark_pool_source": benchmark_pool_source,
         "benchmark_pool_size_before_append": len(historical_samples),
         "benchmark_pool_size_after_append": len(all_samples),
+        "benchmark_samples_appended": samples_appended,
+        "benchmark_match_already_analyzed": match_already_analyzed,
         "side_breakdown": {
             "CT": benchmark_evaluations_ct,
             "T": benchmark_evaluations_t,

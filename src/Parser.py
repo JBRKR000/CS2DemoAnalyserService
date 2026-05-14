@@ -77,15 +77,20 @@ def _hash_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _hash_file(path: Path) -> str:
+def compute_file_sha256(path: str | Path) -> str:
+    file_path = Path(path)
     hasher = hashlib.sha256()
-    with path.open("rb") as file_handle:
+    with file_path.open("rb") as file_handle:
         while True:
             chunk = file_handle.read(1024 * 1024)
             if not chunk:
                 break
             hasher.update(chunk)
     return hasher.hexdigest()
+
+
+def _hash_file(path: Path) -> str:
+    return compute_file_sha256(path)
 
 
 # awpy v2 exposes kills, damages, etc. as cached properties.
