@@ -7,467 +7,310 @@
     "round_count": 24,
     "rounds_played": 12,
     "match_balance": "normal",
-    "steamid": "76561198070099656",
-    "name": "✯✯✯ SHERIFF ✯✯✯",
-    "metrics": {
-      "kast": 58.33,
-      "kpr": 0.5,
-      "hs_percent": 16.67,
-      "full_buy_win_rate": 50.0,
-      "clutch_win_rate": 0.0,
-      "force_win_rate": 0.0,
-      "adr": 65.33
-    },
-    "counts": {
-      "force_wins": 0,
-      "full_buy_wins": 4,
-      "full_buy_rounds": 8,
-      "headshot_kills": 1,
-      "clutch_attempts": 3,
-      "kills": 6,
-      "deaths": 9,
-      "force_rounds": 1,
-      "clutches_won": 0,
-      "assists": 3
-    }
-  },
-  {
-    "schema_version": 1,
-    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
-    "map_name": "de_mirage",
-    "side": "CT",
-    "round_count": 24,
-    "rounds_played": 12,
-    "match_balance": "normal",
-    "steamid": "76561198160863775",
-    "name": "Blend3r",
-    "metrics": {
-      "kast": 66.67,
-      "kpr": 0.83,
-      "hs_percent": 90.0,
-      "full_buy_win_rate": 40.0,
-      "clutch_win_rate": 0.0,
-      "force_win_rate": 50.0,
-      "adr": 166.0
-    },
-    "counts": {
-      "force_wins": 2,
-      "full_buy_wins": 2,
-      "full_buy_rounds": 5,
-      "headshot_kills": 9,
-      "clutch_attempts": 1,
-      "kills": 10,
-      "deaths": 10,
-      "force_rounds": 4,
-      "clutches_won": 0,
-      "assists": 8
-    }
-  },
-  {
-    "schema_version": 1,
-    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
-    "map_name": "de_mirage",
-    "side": "CT",
-    "round_count": 24,
-    "rounds_played": 12,
-    "match_balance": "normal",
-    "steamid": "76561199141159180",
-    "name": "_H3rTz",
-    "metrics": {
-      "kast": 58.33,
-      "kpr": 0.58,
-      "hs_percent": 14.29,
-      "full_buy_win_rate": 50.0,
-      "force_win_rate": 33.33,
-      "adr": 94.25
-    },
-    "counts": {
-      "force_wins": 2,
-      "full_buy_wins": 2,
-      "full_buy_rounds": 4,
-      "headshot_kills": 1,
-      "clutch_attempts": 0,
-      "kills": 7,
-      "deaths": 12,
-      "force_rounds": 6,
-      "clutches_won": 0,
-      "assists": 4
-    }
-  },
-  {
-    "schema_version": 1,
-    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
-    "map_name": "de_mirage",
-    "side": "CT",
-    "round_count": 24,
-    "rounds_played": 12,
-    "match_balance": "normal",
-    "steamid": "76561199105495813",
-    "name": "gatoru_sojo",
-    "metrics": {
-      "kast": 66.67,
-      "kpr": 0.75,
-      "hs_percent": 33.33,
-      "full_buy_win_rate": 33.33,
-      "clutch_win_rate": 0.0,
-      "force_win_rate": 66.67,
-      "adr": 148.17
-    },
-    "counts": {
-      "force_wins": 2,
-      "full_buy_wins": 2,
-      "full_buy_rounds": 6,
-      "headshot_kills": 3,
-      "clutch_attempts": 1,
-      "kills": 9,
-      "deaths": 9,
-      "force_rounds": 3,
-      "clutches_won": 0,
-      "assists": 1
-    }
-  },
-  {
-    "schema_version": 1,
-    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
-    "map_name": "de_mirage",
-    "side": "CT",
-    "round_count": 24,
-    "rounds_played": 12,
-    "match_balance": "normal",
-    "steamid": "76561198077838626",
-    "name": "Credmaxxer",
-    "metrics": {
-      "kast": 41.67,
-      "kpr": 0.58,
-      "hs_percent": 0.0,
-      "full_buy_win_rate": 42.86,
-      "adr": 63.67
-    },
-    "counts": {
-      "force_wins": 0,
-      "full_buy_wins": 3,
-      "full_buy_rounds": 7,
-      "headshot_kills": 0,
-      "clutch_attempts": 0,
-      "kills": 7,
-      "deaths": 8,
-      "force_rounds": 0,
-      "clutches_won": 0,
-      "assists": 0
-    }
-  },
-  {
-    "schema_version": 1,
-    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
-    "map_name": "de_mirage",
-    "side": "CT",
-    "round_count": 24,
-    "rounds_played": 12,
-    "match_balance": "normal",
-    "steamid": "76561198216493693",
-    "name": "Mirasmeister",
-    "metrics": {
-      "kast": 58.33,
-      "kpr": 0.58,
-      "hs_percent": 57.14,
-      "full_buy_win_rate": 44.44,
-      "clutch_win_rate": 33.33,
-      "adr": 51.58
-    },
-    "counts": {
-      "force_wins": 0,
-      "full_buy_wins": 4,
-      "full_buy_rounds": 9,
-      "headshot_kills": 4,
-      "clutch_attempts": 3,
-      "kills": 7,
-      "deaths": 7,
-      "force_rounds": 0,
-      "clutches_won": 1,
-      "assists": 0
-    }
-  },
-  {
-    "schema_version": 1,
-    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
-    "map_name": "de_mirage",
-    "side": "CT",
-    "round_count": 24,
-    "rounds_played": 12,
-    "match_balance": "normal",
-    "steamid": "76561198238828608",
-    "name": "Colberg",
-    "metrics": {
-      "kast": 50.0,
-      "kpr": 0.42,
-      "hs_percent": 40.0,
-      "full_buy_win_rate": 42.86,
-      "clutch_win_rate": 0.0,
-      "force_win_rate": 0.0,
-      "adr": 67.25
-    },
-    "counts": {
-      "force_wins": 0,
-      "full_buy_wins": 3,
-      "full_buy_rounds": 7,
-      "headshot_kills": 2,
-      "clutch_attempts": 1,
-      "kills": 5,
-      "deaths": 11,
-      "force_rounds": 1,
-      "clutches_won": 0,
-      "assists": 3
-    }
-  },
-  {
-    "schema_version": 1,
-    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
-    "map_name": "de_mirage",
-    "side": "CT",
-    "round_count": 24,
-    "rounds_played": 12,
-    "match_balance": "normal",
-    "steamid": "76561198807614543",
-    "name": "y",
-    "metrics": {
-      "kast": 41.67,
-      "kpr": 0.33,
-      "hs_percent": 50.0,
-      "full_buy_win_rate": 33.33,
-      "clutch_win_rate": 0.0,
-      "force_win_rate": 0.0,
-      "adr": 56.08
-    },
-    "counts": {
-      "force_wins": 0,
-      "full_buy_wins": 2,
-      "full_buy_rounds": 6,
-      "headshot_kills": 2,
-      "clutch_attempts": 3,
-      "kills": 4,
-      "deaths": 11,
-      "force_rounds": 1,
-      "clutches_won": 0,
-      "assists": 2
-    }
-  },
-  {
-    "schema_version": 1,
-    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
-    "map_name": "de_mirage",
-    "side": "CT",
-    "round_count": 24,
-    "rounds_played": 12,
-    "match_balance": "normal",
-    "steamid": "76561199043786525",
-    "name": "NimbleGoat",
-    "metrics": {
-      "kast": 66.67,
-      "kpr": 1.0,
-      "hs_percent": 66.67,
-      "full_buy_win_rate": 44.44,
-      "adr": 123.0
-    },
-    "counts": {
-      "force_wins": 0,
-      "full_buy_wins": 4,
-      "full_buy_rounds": 9,
-      "headshot_kills": 8,
-      "clutch_attempts": 0,
-      "kills": 12,
-      "deaths": 9,
-      "force_rounds": 0,
-      "clutches_won": 0,
-      "assists": 2
-    }
-  },
-  {
-    "schema_version": 1,
-    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
-    "map_name": "de_mirage",
-    "side": "CT",
-    "round_count": 24,
-    "rounds_played": 12,
-    "match_balance": "normal",
     "steamid": "76561199170885783",
     "name": "Kuba <3 <3 <##",
     "metrics": {
-      "kast": 91.67,
-      "kpr": 1.0,
-      "hs_percent": 50.0,
+      "force_win_rate": 50.0,
       "full_buy_win_rate": 37.5,
-      "clutch_win_rate": 0.0,
-      "force_win_rate": 50.0,
-      "adr": 137.08
-    },
-    "counts": {
-      "force_wins": 1,
-      "full_buy_wins": 3,
-      "full_buy_rounds": 8,
-      "headshot_kills": 6,
-      "clutch_attempts": 4,
-      "kills": 12,
-      "deaths": 8,
-      "force_rounds": 2,
-      "clutches_won": 0,
-      "assists": 4
-    }
-  },
-  {
-    "schema_version": 1,
-    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
-    "map_name": "de_mirage",
-    "side": "T",
-    "round_count": 24,
-    "rounds_played": 12,
-    "match_balance": "normal",
-    "steamid": "76561199105495813",
-    "name": "gatoru_sojo",
-    "metrics": {
-      "kast": 91.67,
       "kpr": 1.0,
+      "clutch_win_rate": 0.0,
+      "adr": 137.08,
       "hs_percent": 50.0,
-      "full_buy_win_rate": 60.0,
-      "clutch_win_rate": 33.33,
-      "force_win_rate": 100.0,
-      "adr": 188.92
+      "kast": 91.67
     },
     "counts": {
+      "assists": 4,
+      "deaths": 8,
+      "full_buy_wins": 3,
       "force_wins": 1,
-      "full_buy_wins": 6,
-      "full_buy_rounds": 10,
+      "force_rounds": 2,
+      "clutch_attempts": 4,
+      "clutches_won": 0,
       "headshot_kills": 6,
-      "clutch_attempts": 3,
-      "kills": 12,
-      "deaths": 6,
-      "force_rounds": 1,
-      "clutches_won": 1,
-      "assists": 2
+      "full_buy_rounds": 8,
+      "kills": 12
     }
   },
   {
     "schema_version": 1,
     "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
     "map_name": "de_mirage",
-    "side": "T",
+    "side": "CT",
     "round_count": 24,
     "rounds_played": 12,
     "match_balance": "normal",
-    "steamid": "76561198077838626",
-    "name": "Credmaxxer",
+    "steamid": "76561198160863775",
+    "name": "Blend3r",
     "metrics": {
-      "kast": 66.67,
-      "kpr": 0.75,
-      "hs_percent": 0.0,
-      "full_buy_win_rate": 70.0,
-      "clutch_win_rate": 100.0,
-      "adr": 101.33
+      "force_win_rate": 50.0,
+      "full_buy_win_rate": 40.0,
+      "kpr": 0.83,
+      "clutch_win_rate": 0.0,
+      "adr": 166.0,
+      "hs_percent": 90.0,
+      "kast": 66.67
     },
     "counts": {
-      "force_wins": 0,
-      "full_buy_wins": 7,
-      "full_buy_rounds": 10,
-      "headshot_kills": 0,
+      "assists": 8,
+      "deaths": 10,
+      "full_buy_wins": 2,
+      "force_wins": 2,
+      "force_rounds": 4,
       "clutch_attempts": 1,
-      "kills": 9,
-      "deaths": 7,
-      "force_rounds": 0,
-      "clutches_won": 1,
-      "assists": 4
+      "clutches_won": 0,
+      "headshot_kills": 9,
+      "full_buy_rounds": 5,
+      "kills": 10
     }
   },
   {
     "schema_version": 1,
     "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
     "map_name": "de_mirage",
-    "side": "T",
+    "side": "CT",
     "round_count": 24,
     "rounds_played": 12,
     "match_balance": "normal",
     "steamid": "76561198216493693",
     "name": "Mirasmeister",
     "metrics": {
-      "kast": 58.33,
-      "kpr": 0.5,
-      "hs_percent": 50.0,
-      "full_buy_win_rate": 71.43,
-      "force_win_rate": 66.67,
-      "adr": 63.92
+      "full_buy_win_rate": 44.44,
+      "kpr": 0.58,
+      "clutch_win_rate": 33.33,
+      "adr": 51.58,
+      "hs_percent": 57.14,
+      "kast": 58.33
     },
     "counts": {
-      "force_wins": 2,
-      "full_buy_wins": 5,
-      "full_buy_rounds": 7,
-      "headshot_kills": 3,
-      "clutch_attempts": 0,
-      "kills": 6,
-      "deaths": 9,
-      "force_rounds": 3,
-      "clutches_won": 0,
-      "assists": 2
-    }
-  },
-  {
-    "schema_version": 1,
-    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
-    "map_name": "de_mirage",
-    "side": "T",
-    "round_count": 24,
-    "rounds_played": 12,
-    "match_balance": "normal",
-    "steamid": "76561198238828608",
-    "name": "Colberg",
-    "metrics": {
-      "kast": 66.67,
-      "kpr": 0.5,
-      "hs_percent": 66.67,
-      "full_buy_win_rate": 75.0,
-      "clutch_win_rate": 0.0,
-      "force_win_rate": 50.0,
-      "adr": 66.92
-    },
-    "counts": {
-      "force_wins": 1,
-      "full_buy_wins": 6,
-      "full_buy_rounds": 8,
+      "assists": 0,
+      "deaths": 7,
+      "full_buy_wins": 4,
+      "force_wins": 0,
+      "force_rounds": 0,
+      "clutch_attempts": 3,
+      "clutches_won": 1,
       "headshot_kills": 4,
-      "clutch_attempts": 1,
-      "kills": 6,
-      "deaths": 10,
-      "force_rounds": 2,
-      "clutches_won": 0,
-      "assists": 3
+      "full_buy_rounds": 9,
+      "kills": 7
     }
   },
   {
     "schema_version": 1,
     "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
     "map_name": "de_mirage",
-    "side": "T",
+    "side": "CT",
     "round_count": 24,
     "rounds_played": 12,
     "match_balance": "normal",
     "steamid": "76561199043786525",
     "name": "NimbleGoat",
     "metrics": {
-      "kast": 91.67,
-      "kpr": 0.92,
-      "hs_percent": 36.36,
-      "full_buy_win_rate": 55.56,
-      "force_win_rate": 100.0,
-      "adr": 139.83
+      "full_buy_win_rate": 44.44,
+      "kpr": 1.0,
+      "adr": 123.0,
+      "hs_percent": 66.67,
+      "kast": 66.67
     },
     "counts": {
-      "force_wins": 2,
-      "full_buy_wins": 5,
-      "full_buy_rounds": 9,
-      "headshot_kills": 4,
+      "assists": 2,
+      "deaths": 9,
+      "full_buy_wins": 4,
+      "force_wins": 0,
+      "force_rounds": 0,
       "clutch_attempts": 0,
-      "kills": 11,
-      "deaths": 6,
-      "force_rounds": 2,
       "clutches_won": 0,
-      "assists": 2
+      "headshot_kills": 8,
+      "full_buy_rounds": 9,
+      "kills": 12
+    }
+  },
+  {
+    "schema_version": 1,
+    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
+    "map_name": "de_mirage",
+    "side": "CT",
+    "round_count": 24,
+    "rounds_played": 12,
+    "match_balance": "normal",
+    "steamid": "76561199141159180",
+    "name": "_H3rTz",
+    "metrics": {
+      "force_win_rate": 33.33,
+      "full_buy_win_rate": 50.0,
+      "kpr": 0.58,
+      "adr": 94.25,
+      "hs_percent": 14.29,
+      "kast": 58.33
+    },
+    "counts": {
+      "assists": 4,
+      "deaths": 12,
+      "full_buy_wins": 2,
+      "force_wins": 2,
+      "force_rounds": 6,
+      "clutch_attempts": 0,
+      "clutches_won": 0,
+      "headshot_kills": 1,
+      "full_buy_rounds": 4,
+      "kills": 7
+    }
+  },
+  {
+    "schema_version": 1,
+    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
+    "map_name": "de_mirage",
+    "side": "CT",
+    "round_count": 24,
+    "rounds_played": 12,
+    "match_balance": "normal",
+    "steamid": "76561198807614543",
+    "name": "y",
+    "metrics": {
+      "force_win_rate": 0.0,
+      "full_buy_win_rate": 33.33,
+      "kpr": 0.33,
+      "clutch_win_rate": 0.0,
+      "adr": 56.08,
+      "hs_percent": 50.0,
+      "kast": 41.67
+    },
+    "counts": {
+      "assists": 2,
+      "deaths": 11,
+      "full_buy_wins": 2,
+      "force_wins": 0,
+      "force_rounds": 1,
+      "clutch_attempts": 3,
+      "clutches_won": 0,
+      "headshot_kills": 2,
+      "full_buy_rounds": 6,
+      "kills": 4
+    }
+  },
+  {
+    "schema_version": 1,
+    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
+    "map_name": "de_mirage",
+    "side": "CT",
+    "round_count": 24,
+    "rounds_played": 12,
+    "match_balance": "normal",
+    "steamid": "76561199105495813",
+    "name": "gatoru_sojo",
+    "metrics": {
+      "force_win_rate": 66.67,
+      "full_buy_win_rate": 33.33,
+      "kpr": 0.75,
+      "clutch_win_rate": 0.0,
+      "adr": 148.17,
+      "hs_percent": 33.33,
+      "kast": 66.67
+    },
+    "counts": {
+      "assists": 1,
+      "deaths": 9,
+      "full_buy_wins": 2,
+      "force_wins": 2,
+      "force_rounds": 3,
+      "clutch_attempts": 1,
+      "clutches_won": 0,
+      "headshot_kills": 3,
+      "full_buy_rounds": 6,
+      "kills": 9
+    }
+  },
+  {
+    "schema_version": 1,
+    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
+    "map_name": "de_mirage",
+    "side": "CT",
+    "round_count": 24,
+    "rounds_played": 12,
+    "match_balance": "normal",
+    "steamid": "76561198238828608",
+    "name": "Colberg",
+    "metrics": {
+      "force_win_rate": 0.0,
+      "full_buy_win_rate": 42.86,
+      "kpr": 0.42,
+      "clutch_win_rate": 0.0,
+      "adr": 67.25,
+      "hs_percent": 40.0,
+      "kast": 50.0
+    },
+    "counts": {
+      "assists": 3,
+      "deaths": 11,
+      "full_buy_wins": 3,
+      "force_wins": 0,
+      "force_rounds": 1,
+      "clutch_attempts": 1,
+      "clutches_won": 0,
+      "headshot_kills": 2,
+      "full_buy_rounds": 7,
+      "kills": 5
+    }
+  },
+  {
+    "schema_version": 1,
+    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
+    "map_name": "de_mirage",
+    "side": "CT",
+    "round_count": 24,
+    "rounds_played": 12,
+    "match_balance": "normal",
+    "steamid": "76561198077838626",
+    "name": "Credmaxxer",
+    "metrics": {
+      "full_buy_win_rate": 42.86,
+      "kpr": 0.58,
+      "adr": 63.67,
+      "hs_percent": 0.0,
+      "kast": 41.67
+    },
+    "counts": {
+      "assists": 0,
+      "deaths": 8,
+      "full_buy_wins": 3,
+      "force_wins": 0,
+      "force_rounds": 0,
+      "clutch_attempts": 0,
+      "clutches_won": 0,
+      "headshot_kills": 0,
+      "full_buy_rounds": 7,
+      "kills": 7
+    }
+  },
+  {
+    "schema_version": 1,
+    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
+    "map_name": "de_mirage",
+    "side": "CT",
+    "round_count": 24,
+    "rounds_played": 12,
+    "match_balance": "normal",
+    "steamid": "76561198070099656",
+    "name": "✯✯✯ SHERIFF ✯✯✯",
+    "metrics": {
+      "force_win_rate": 0.0,
+      "full_buy_win_rate": 50.0,
+      "kpr": 0.5,
+      "clutch_win_rate": 0.0,
+      "adr": 65.33,
+      "hs_percent": 16.67,
+      "kast": 58.33
+    },
+    "counts": {
+      "assists": 3,
+      "deaths": 9,
+      "full_buy_wins": 4,
+      "force_wins": 0,
+      "force_rounds": 1,
+      "clutch_attempts": 3,
+      "clutches_won": 0,
+      "headshot_kills": 1,
+      "full_buy_rounds": 8,
+      "kills": 6
     }
   },
   {
@@ -481,24 +324,148 @@
     "steamid": "76561199170885783",
     "name": "Kuba <3 <3 <##",
     "metrics": {
-      "kast": 75.0,
-      "kpr": 0.75,
-      "hs_percent": 44.44,
       "full_buy_win_rate": 70.0,
+      "kpr": 0.75,
       "clutch_win_rate": 0.0,
-      "adr": 102.08
+      "adr": 102.08,
+      "hs_percent": 44.44,
+      "kast": 75.0
     },
     "counts": {
-      "force_wins": 0,
-      "full_buy_wins": 7,
-      "full_buy_rounds": 10,
-      "headshot_kills": 4,
-      "clutch_attempts": 1,
-      "kills": 9,
+      "assists": 2,
       "deaths": 10,
+      "full_buy_wins": 7,
+      "force_wins": 0,
       "force_rounds": 0,
+      "clutch_attempts": 1,
       "clutches_won": 0,
-      "assists": 2
+      "headshot_kills": 4,
+      "full_buy_rounds": 10,
+      "kills": 9
+    }
+  },
+  {
+    "schema_version": 1,
+    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
+    "map_name": "de_mirage",
+    "side": "T",
+    "round_count": 24,
+    "rounds_played": 12,
+    "match_balance": "normal",
+    "steamid": "76561198077838626",
+    "name": "Credmaxxer",
+    "metrics": {
+      "full_buy_win_rate": 70.0,
+      "kpr": 0.75,
+      "clutch_win_rate": 100.0,
+      "adr": 101.33,
+      "hs_percent": 0.0,
+      "kast": 66.67
+    },
+    "counts": {
+      "assists": 4,
+      "deaths": 7,
+      "full_buy_wins": 7,
+      "force_wins": 0,
+      "force_rounds": 0,
+      "clutch_attempts": 1,
+      "clutches_won": 1,
+      "headshot_kills": 0,
+      "full_buy_rounds": 10,
+      "kills": 9
+    }
+  },
+  {
+    "schema_version": 1,
+    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
+    "map_name": "de_mirage",
+    "side": "T",
+    "round_count": 24,
+    "rounds_played": 12,
+    "match_balance": "normal",
+    "steamid": "76561199141159180",
+    "name": "_H3rTz",
+    "metrics": {
+      "full_buy_win_rate": 66.67,
+      "kpr": 0.92,
+      "clutch_win_rate": 33.33,
+      "adr": 139.83,
+      "hs_percent": 72.73,
+      "kast": 50.0
+    },
+    "counts": {
+      "assists": 3,
+      "deaths": 9,
+      "full_buy_wins": 6,
+      "force_wins": 0,
+      "force_rounds": 0,
+      "clutch_attempts": 3,
+      "clutches_won": 1,
+      "headshot_kills": 8,
+      "full_buy_rounds": 9,
+      "kills": 11
+    }
+  },
+  {
+    "schema_version": 1,
+    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
+    "map_name": "de_mirage",
+    "side": "T",
+    "round_count": 24,
+    "rounds_played": 12,
+    "match_balance": "normal",
+    "steamid": "76561198216493693",
+    "name": "Mirasmeister",
+    "metrics": {
+      "force_win_rate": 66.67,
+      "full_buy_win_rate": 71.43,
+      "kpr": 0.5,
+      "adr": 63.92,
+      "hs_percent": 50.0,
+      "kast": 58.33
+    },
+    "counts": {
+      "assists": 2,
+      "deaths": 9,
+      "full_buy_wins": 5,
+      "force_wins": 2,
+      "force_rounds": 3,
+      "clutch_attempts": 0,
+      "clutches_won": 0,
+      "headshot_kills": 3,
+      "full_buy_rounds": 7,
+      "kills": 6
+    }
+  },
+  {
+    "schema_version": 1,
+    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
+    "map_name": "de_mirage",
+    "side": "T",
+    "round_count": 24,
+    "rounds_played": 12,
+    "match_balance": "normal",
+    "steamid": "76561199043786525",
+    "name": "NimbleGoat",
+    "metrics": {
+      "force_win_rate": 100.0,
+      "full_buy_win_rate": 55.56,
+      "kpr": 0.92,
+      "adr": 139.83,
+      "hs_percent": 36.36,
+      "kast": 91.67
+    },
+    "counts": {
+      "assists": 2,
+      "deaths": 6,
+      "full_buy_wins": 5,
+      "force_wins": 2,
+      "force_rounds": 2,
+      "clutch_attempts": 0,
+      "clutches_won": 0,
+      "headshot_kills": 4,
+      "full_buy_rounds": 9,
+      "kills": 11
     }
   },
   {
@@ -512,88 +479,25 @@
     "steamid": "76561198807614543",
     "name": "y",
     "metrics": {
-      "kast": 41.67,
-      "kpr": 0.75,
-      "hs_percent": 66.67,
+      "force_win_rate": 100.0,
       "full_buy_win_rate": 62.5,
+      "kpr": 0.75,
       "clutch_win_rate": 50.0,
-      "force_win_rate": 100.0,
-      "adr": 109.67
+      "adr": 109.67,
+      "hs_percent": 66.67,
+      "kast": 41.67
     },
     "counts": {
-      "force_wins": 2,
-      "full_buy_wins": 5,
-      "full_buy_rounds": 8,
-      "headshot_kills": 6,
-      "clutch_attempts": 2,
-      "kills": 9,
+      "assists": 1,
       "deaths": 8,
+      "full_buy_wins": 5,
+      "force_wins": 2,
       "force_rounds": 2,
-      "clutches_won": 1,
-      "assists": 1
-    }
-  },
-  {
-    "schema_version": 1,
-    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
-    "map_name": "de_mirage",
-    "side": "T",
-    "round_count": 24,
-    "rounds_played": 12,
-    "match_balance": "normal",
-    "steamid": "76561198160863775",
-    "name": "Blend3r",
-    "metrics": {
-      "kast": 75.0,
-      "kpr": 1.25,
-      "hs_percent": 53.33,
-      "full_buy_win_rate": 60.0,
-      "force_win_rate": 100.0,
-      "adr": 153.25
-    },
-    "counts": {
-      "force_wins": 1,
-      "full_buy_wins": 6,
-      "full_buy_rounds": 10,
-      "headshot_kills": 8,
-      "clutch_attempts": 0,
-      "kills": 15,
-      "deaths": 8,
-      "force_rounds": 1,
-      "clutches_won": 0,
-      "assists": 3
-    }
-  },
-  {
-    "schema_version": 1,
-    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
-    "map_name": "de_mirage",
-    "side": "T",
-    "round_count": 24,
-    "rounds_played": 12,
-    "match_balance": "normal",
-    "steamid": "76561198070099656",
-    "name": "✯✯✯ SHERIFF ✯✯✯",
-    "metrics": {
-      "kast": 66.67,
-      "kpr": 0.5,
-      "hs_percent": 83.33,
-      "full_buy_win_rate": 62.5,
-      "clutch_win_rate": 0.0,
-      "force_win_rate": 66.67,
-      "adr": 87.42
-    },
-    "counts": {
-      "force_wins": 2,
-      "full_buy_wins": 5,
-      "full_buy_rounds": 8,
-      "headshot_kills": 5,
       "clutch_attempts": 2,
-      "kills": 6,
-      "deaths": 6,
-      "force_rounds": 3,
-      "clutches_won": 0,
-      "assists": 3
+      "clutches_won": 1,
+      "headshot_kills": 6,
+      "full_buy_rounds": 8,
+      "kills": 9
     }
   },
   {
@@ -604,27 +508,123 @@
     "round_count": 24,
     "rounds_played": 12,
     "match_balance": "normal",
-    "steamid": "76561199141159180",
-    "name": "_H3rTz",
+    "steamid": "76561199105495813",
+    "name": "gatoru_sojo",
     "metrics": {
-      "kast": 50.0,
-      "kpr": 0.92,
-      "hs_percent": 72.73,
-      "full_buy_win_rate": 66.67,
+      "force_win_rate": 100.0,
+      "full_buy_win_rate": 60.0,
+      "kpr": 1.0,
       "clutch_win_rate": 33.33,
-      "adr": 139.83
+      "adr": 188.92,
+      "hs_percent": 50.0,
+      "kast": 91.67
     },
     "counts": {
-      "force_wins": 0,
+      "assists": 2,
+      "deaths": 6,
       "full_buy_wins": 6,
-      "full_buy_rounds": 9,
-      "headshot_kills": 8,
+      "force_wins": 1,
+      "force_rounds": 1,
       "clutch_attempts": 3,
-      "kills": 11,
-      "deaths": 9,
-      "force_rounds": 0,
       "clutches_won": 1,
-      "assists": 3
+      "headshot_kills": 6,
+      "full_buy_rounds": 10,
+      "kills": 12
+    }
+  },
+  {
+    "schema_version": 1,
+    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
+    "map_name": "de_mirage",
+    "side": "T",
+    "round_count": 24,
+    "rounds_played": 12,
+    "match_balance": "normal",
+    "steamid": "76561198238828608",
+    "name": "Colberg",
+    "metrics": {
+      "force_win_rate": 50.0,
+      "full_buy_win_rate": 75.0,
+      "kpr": 0.5,
+      "clutch_win_rate": 0.0,
+      "adr": 66.92,
+      "hs_percent": 66.67,
+      "kast": 66.67
+    },
+    "counts": {
+      "assists": 3,
+      "deaths": 10,
+      "full_buy_wins": 6,
+      "force_wins": 1,
+      "force_rounds": 2,
+      "clutch_attempts": 1,
+      "clutches_won": 0,
+      "headshot_kills": 4,
+      "full_buy_rounds": 8,
+      "kills": 6
+    }
+  },
+  {
+    "schema_version": 1,
+    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
+    "map_name": "de_mirage",
+    "side": "T",
+    "round_count": 24,
+    "rounds_played": 12,
+    "match_balance": "normal",
+    "steamid": "76561198160863775",
+    "name": "Blend3r",
+    "metrics": {
+      "force_win_rate": 100.0,
+      "full_buy_win_rate": 60.0,
+      "kpr": 1.25,
+      "adr": 153.25,
+      "hs_percent": 53.33,
+      "kast": 75.0
+    },
+    "counts": {
+      "assists": 3,
+      "deaths": 8,
+      "full_buy_wins": 6,
+      "force_wins": 1,
+      "force_rounds": 1,
+      "clutch_attempts": 0,
+      "clutches_won": 0,
+      "headshot_kills": 8,
+      "full_buy_rounds": 10,
+      "kills": 15
+    }
+  },
+  {
+    "schema_version": 1,
+    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
+    "map_name": "de_mirage",
+    "side": "T",
+    "round_count": 24,
+    "rounds_played": 12,
+    "match_balance": "normal",
+    "steamid": "76561198070099656",
+    "name": "✯✯✯ SHERIFF ✯✯✯",
+    "metrics": {
+      "force_win_rate": 66.67,
+      "full_buy_win_rate": 62.5,
+      "kpr": 0.5,
+      "clutch_win_rate": 0.0,
+      "adr": 87.42,
+      "hs_percent": 83.33,
+      "kast": 66.67
+    },
+    "counts": {
+      "assists": 3,
+      "deaths": 6,
+      "full_buy_wins": 5,
+      "force_wins": 2,
+      "force_rounds": 3,
+      "clutch_attempts": 2,
+      "clutches_won": 0,
+      "headshot_kills": 5,
+      "full_buy_rounds": 8,
+      "kills": 6
     }
   },
   {
@@ -635,26 +635,26 @@
     "round_count": 24,
     "rounds_played": 24,
     "match_balance": "normal",
-    "steamid": "76561198070099656",
-    "name": "✯✯✯ SHERIFF ✯✯✯",
+    "steamid": "76561199170885783",
+    "name": "Kuba <3 <3 <##",
     "metrics": {
-      "kast": 62.5,
-      "kpr": 0.5,
-      "hs_percent": 50.0,
-      "full_buy_win_rate": 56.25,
       "force_win_rate": 50.0,
-      "adr": 76.38
+      "full_buy_win_rate": 55.56,
+      "kpr": 0.88,
+      "adr": 119.58,
+      "hs_percent": 47.62,
+      "kast": 83.33
     },
     "counts": {
-      "force_wins": 2,
-      "full_buy_wins": 9,
-      "full_buy_rounds": 16,
-      "headshot_kills": 6,
+      "assists": 6,
+      "deaths": 18,
+      "full_buy_wins": 10,
+      "force_wins": 1,
+      "force_rounds": 2,
       "clutch_attempts": 5,
-      "kills": 12,
-      "deaths": 15,
-      "force_rounds": 4,
-      "assists": 6
+      "headshot_kills": 10,
+      "full_buy_rounds": 18,
+      "kills": 21
     }
   },
   {
@@ -668,23 +668,84 @@
     "steamid": "76561198160863775",
     "name": "Blend3r",
     "metrics": {
-      "kast": 70.83,
-      "kpr": 1.04,
-      "hs_percent": 68.0,
-      "full_buy_win_rate": 53.33,
       "force_win_rate": 60.0,
-      "adr": 159.62
+      "full_buy_win_rate": 53.33,
+      "kpr": 1.04,
+      "adr": 159.62,
+      "hs_percent": 68.0,
+      "kast": 70.83
     },
     "counts": {
-      "force_wins": 3,
-      "full_buy_wins": 8,
-      "full_buy_rounds": 15,
-      "headshot_kills": 17,
-      "clutch_attempts": 1,
-      "kills": 25,
+      "assists": 11,
       "deaths": 18,
+      "full_buy_wins": 8,
+      "force_wins": 3,
       "force_rounds": 5,
-      "assists": 11
+      "clutch_attempts": 1,
+      "headshot_kills": 17,
+      "full_buy_rounds": 15,
+      "kills": 25
+    }
+  },
+  {
+    "schema_version": 1,
+    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
+    "map_name": "de_mirage",
+    "side": "ALL",
+    "round_count": 24,
+    "rounds_played": 24,
+    "match_balance": "normal",
+    "steamid": "76561198216493693",
+    "name": "Mirasmeister",
+    "metrics": {
+      "force_win_rate": 66.67,
+      "full_buy_win_rate": 56.25,
+      "kpr": 0.54,
+      "clutch_win_rate": 33.33,
+      "adr": 57.75,
+      "hs_percent": 53.85,
+      "kast": 58.33
+    },
+    "counts": {
+      "assists": 2,
+      "deaths": 16,
+      "full_buy_wins": 9,
+      "force_wins": 2,
+      "force_rounds": 3,
+      "clutch_attempts": 3,
+      "clutches_won": 1,
+      "headshot_kills": 7,
+      "full_buy_rounds": 16,
+      "kills": 13
+    }
+  },
+  {
+    "schema_version": 1,
+    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
+    "map_name": "de_mirage",
+    "side": "ALL",
+    "round_count": 24,
+    "rounds_played": 24,
+    "match_balance": "normal",
+    "steamid": "76561199043786525",
+    "name": "NimbleGoat",
+    "metrics": {
+      "force_win_rate": 100.0,
+      "full_buy_win_rate": 50.0,
+      "kpr": 0.96,
+      "adr": 131.41,
+      "hs_percent": 52.17,
+      "kast": 79.17
+    },
+    "counts": {
+      "assists": 4,
+      "deaths": 15,
+      "full_buy_wins": 9,
+      "force_wins": 2,
+      "force_rounds": 2,
+      "headshot_kills": 12,
+      "full_buy_rounds": 18,
+      "kills": 23
     }
   },
   {
@@ -698,25 +759,57 @@
     "steamid": "76561199141159180",
     "name": "_H3rTz",
     "metrics": {
-      "kast": 54.16,
-      "kpr": 0.75,
-      "hs_percent": 50.0,
-      "full_buy_win_rate": 61.54,
-      "clutch_win_rate": 33.33,
       "force_win_rate": 33.33,
-      "adr": 117.04
+      "full_buy_win_rate": 61.54,
+      "kpr": 0.75,
+      "clutch_win_rate": 33.33,
+      "adr": 117.04,
+      "hs_percent": 50.0,
+      "kast": 54.16
     },
     "counts": {
-      "force_wins": 2,
-      "full_buy_wins": 8,
-      "full_buy_rounds": 13,
-      "headshot_kills": 9,
-      "clutch_attempts": 3,
-      "kills": 18,
+      "assists": 7,
       "deaths": 21,
+      "full_buy_wins": 8,
+      "force_wins": 2,
       "force_rounds": 6,
+      "clutch_attempts": 3,
       "clutches_won": 1,
-      "assists": 7
+      "headshot_kills": 9,
+      "full_buy_rounds": 13,
+      "kills": 18
+    }
+  },
+  {
+    "schema_version": 1,
+    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
+    "map_name": "de_mirage",
+    "side": "ALL",
+    "round_count": 24,
+    "rounds_played": 24,
+    "match_balance": "normal",
+    "steamid": "76561198807614543",
+    "name": "y",
+    "metrics": {
+      "force_win_rate": 66.67,
+      "full_buy_win_rate": 50.0,
+      "kpr": 0.54,
+      "clutch_win_rate": 20.0,
+      "adr": 82.88,
+      "hs_percent": 61.54,
+      "kast": 41.67
+    },
+    "counts": {
+      "assists": 3,
+      "deaths": 19,
+      "full_buy_wins": 7,
+      "force_wins": 2,
+      "force_rounds": 3,
+      "clutch_attempts": 5,
+      "clutches_won": 1,
+      "headshot_kills": 8,
+      "full_buy_rounds": 14,
+      "kills": 13
     }
   },
   {
@@ -730,84 +823,25 @@
     "steamid": "76561199105495813",
     "name": "gatoru_sojo",
     "metrics": {
-      "kast": 79.17,
-      "kpr": 0.88,
-      "hs_percent": 42.86,
-      "full_buy_win_rate": 50.0,
-      "clutch_win_rate": 25.0,
       "force_win_rate": 75.0,
-      "adr": 168.54
+      "full_buy_win_rate": 50.0,
+      "kpr": 0.88,
+      "clutch_win_rate": 25.0,
+      "adr": 168.54,
+      "hs_percent": 42.86,
+      "kast": 79.17
     },
     "counts": {
-      "force_wins": 3,
+      "assists": 3,
+      "deaths": 15,
       "full_buy_wins": 8,
-      "full_buy_rounds": 16,
-      "headshot_kills": 9,
-      "clutch_attempts": 4,
-      "kills": 21,
-      "deaths": 15,
+      "force_wins": 3,
       "force_rounds": 4,
+      "clutch_attempts": 4,
       "clutches_won": 1,
-      "assists": 3
-    }
-  },
-  {
-    "schema_version": 1,
-    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
-    "map_name": "de_mirage",
-    "side": "ALL",
-    "round_count": 24,
-    "rounds_played": 24,
-    "match_balance": "normal",
-    "steamid": "76561198077838626",
-    "name": "Credmaxxer",
-    "metrics": {
-      "kast": 54.17,
-      "kpr": 0.67,
-      "full_buy_win_rate": 58.82,
-      "clutch_win_rate": 100.0,
-      "adr": 82.5
-    },
-    "counts": {
-      "full_buy_wins": 10,
-      "full_buy_rounds": 17,
-      "clutch_attempts": 1,
-      "kills": 16,
-      "deaths": 15,
-      "clutches_won": 1,
-      "assists": 4
-    }
-  },
-  {
-    "schema_version": 1,
-    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
-    "map_name": "de_mirage",
-    "side": "ALL",
-    "round_count": 24,
-    "rounds_played": 24,
-    "match_balance": "normal",
-    "steamid": "76561198216493693",
-    "name": "Mirasmeister",
-    "metrics": {
-      "kast": 58.33,
-      "kpr": 0.54,
-      "hs_percent": 53.85,
-      "full_buy_win_rate": 56.25,
-      "clutch_win_rate": 33.33,
-      "force_win_rate": 66.67,
-      "adr": 57.75
-    },
-    "counts": {
-      "force_wins": 2,
-      "full_buy_wins": 9,
+      "headshot_kills": 9,
       "full_buy_rounds": 16,
-      "headshot_kills": 7,
-      "clutch_attempts": 3,
-      "kills": 13,
-      "deaths": 16,
-      "force_rounds": 3,
-      "clutches_won": 1,
-      "assists": 2
+      "kills": 21
     }
   },
   {
@@ -821,84 +855,23 @@
     "steamid": "76561198238828608",
     "name": "Colberg",
     "metrics": {
-      "kast": 58.34,
-      "kpr": 0.46,
-      "hs_percent": 54.55,
-      "full_buy_win_rate": 60.0,
       "force_win_rate": 33.33,
-      "adr": 67.08
+      "full_buy_win_rate": 60.0,
+      "kpr": 0.46,
+      "adr": 67.08,
+      "hs_percent": 54.55,
+      "kast": 58.34
     },
     "counts": {
-      "force_wins": 1,
-      "full_buy_wins": 9,
-      "full_buy_rounds": 15,
-      "headshot_kills": 6,
-      "clutch_attempts": 2,
-      "kills": 11,
+      "assists": 6,
       "deaths": 21,
-      "force_rounds": 3,
-      "assists": 6
-    }
-  },
-  {
-    "schema_version": 1,
-    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
-    "map_name": "de_mirage",
-    "side": "ALL",
-    "round_count": 24,
-    "rounds_played": 24,
-    "match_balance": "normal",
-    "steamid": "76561198807614543",
-    "name": "y",
-    "metrics": {
-      "kast": 41.67,
-      "kpr": 0.54,
-      "hs_percent": 61.54,
-      "full_buy_win_rate": 50.0,
-      "clutch_win_rate": 20.0,
-      "force_win_rate": 66.67,
-      "adr": 82.88
-    },
-    "counts": {
-      "force_wins": 2,
-      "full_buy_wins": 7,
-      "full_buy_rounds": 14,
-      "headshot_kills": 8,
-      "clutch_attempts": 5,
-      "kills": 13,
-      "deaths": 19,
-      "force_rounds": 3,
-      "clutches_won": 1,
-      "assists": 3
-    }
-  },
-  {
-    "schema_version": 1,
-    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
-    "map_name": "de_mirage",
-    "side": "ALL",
-    "round_count": 24,
-    "rounds_played": 24,
-    "match_balance": "normal",
-    "steamid": "76561199043786525",
-    "name": "NimbleGoat",
-    "metrics": {
-      "kast": 79.17,
-      "kpr": 0.96,
-      "hs_percent": 52.17,
-      "full_buy_win_rate": 50.0,
-      "force_win_rate": 100.0,
-      "adr": 131.41
-    },
-    "counts": {
-      "force_wins": 2,
       "full_buy_wins": 9,
-      "full_buy_rounds": 18,
-      "headshot_kills": 12,
-      "kills": 23,
-      "deaths": 15,
-      "force_rounds": 2,
-      "assists": 4
+      "force_wins": 1,
+      "force_rounds": 3,
+      "clutch_attempts": 2,
+      "headshot_kills": 6,
+      "full_buy_rounds": 15,
+      "kills": 11
     }
   },
   {
@@ -909,26 +882,53 @@
     "round_count": 24,
     "rounds_played": 24,
     "match_balance": "normal",
-    "steamid": "76561199170885783",
-    "name": "Kuba <3 <3 <##",
+    "steamid": "76561198077838626",
+    "name": "Credmaxxer",
     "metrics": {
-      "kast": 83.33,
-      "kpr": 0.88,
-      "hs_percent": 47.62,
-      "full_buy_win_rate": 55.56,
-      "force_win_rate": 50.0,
-      "adr": 119.58
+      "full_buy_win_rate": 58.82,
+      "kpr": 0.67,
+      "clutch_win_rate": 100.0,
+      "adr": 82.5,
+      "kast": 54.17
     },
     "counts": {
-      "force_wins": 1,
+      "assists": 4,
+      "deaths": 15,
       "full_buy_wins": 10,
-      "full_buy_rounds": 18,
-      "headshot_kills": 10,
+      "clutch_attempts": 1,
+      "clutches_won": 1,
+      "full_buy_rounds": 17,
+      "kills": 16
+    }
+  },
+  {
+    "schema_version": 1,
+    "match_id": "cdc96889ce2356e281df71be9c2a1d0ca0233f3b79ac2f41ee44bcbf8d8d5f4c",
+    "map_name": "de_mirage",
+    "side": "ALL",
+    "round_count": 24,
+    "rounds_played": 24,
+    "match_balance": "normal",
+    "steamid": "76561198070099656",
+    "name": "✯✯✯ SHERIFF ✯✯✯",
+    "metrics": {
+      "force_win_rate": 50.0,
+      "full_buy_win_rate": 56.25,
+      "kpr": 0.5,
+      "adr": 76.38,
+      "hs_percent": 50.0,
+      "kast": 62.5
+    },
+    "counts": {
+      "assists": 6,
+      "deaths": 15,
+      "full_buy_wins": 9,
+      "force_wins": 2,
+      "force_rounds": 4,
       "clutch_attempts": 5,
-      "kills": 21,
-      "deaths": 18,
-      "force_rounds": 2,
-      "assists": 6
+      "headshot_kills": 6,
+      "full_buy_rounds": 16,
+      "kills": 12
     }
   }
 ]

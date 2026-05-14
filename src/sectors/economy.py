@@ -110,6 +110,32 @@ def _players_per_round_from_ticks(ticks: pl.DataFrame) -> pl.DataFrame:
 def _equip_from_ticks(ticks: pl.DataFrame) -> pl.DataFrame:
     if not _has_cols(ticks, ["steamid", "round_num", "current_equip_value"]):
         return pl.DataFrame(schema={"steamid": pl.UInt64, "round_num": pl.Int64, "equip_value": pl.Int64})
+
+    # Preferred: snapshot right after freeze time ends (first non-freeze tick in round).
+    if _has_cols(ticks, ["steamid", "round_num", "current_equip_value", "tick", "is_freeze_period"]):
+        post_freeze = (
+            ticks.select(["steamid", "round_num", "tick", "current_equip_value", "is_freeze_period"])
+            .drop_nulls(["steamid", "round_num", "tick", "current_equip_value", "is_freeze_period"])
+            .with_columns(pl.col("is_freeze_period").cast(pl.Boolean))
+            .filter(~pl.col("is_freeze_period"))
+            .sort(["round_num", "steamid", "tick"])
+            .group_by(["steamid", "round_num"], maintain_order=True)
+            .agg(pl.first("current_equip_value").cast(pl.Int64).alias("equip_value"))
+        )
+        if not post_freeze.is_empty():
+            return post_freeze
+
+    # Fallback: earliest tick snapshot in round (less leakage than max over whole round).
+    if _has_cols(ticks, ["steamid", "round_num", "current_equip_value", "tick"]):
+        return (
+            ticks.select(["steamid", "round_num", "tick", "current_equip_value"])
+            .drop_nulls(["steamid", "round_num", "tick", "current_equip_value"])
+            .sort(["round_num", "steamid", "tick"])
+            .group_by(["steamid", "round_num"], maintain_order=True)
+            .agg(pl.first("current_equip_value").cast(pl.Int64).alias("equip_value"))
+        )
+
+    # Last-resort compatibility fallback for sparse tick schemas.
     return (
         ticks.select(["steamid", "round_num", "current_equip_value"])
         .drop_nulls(["steamid", "round_num", "current_equip_value"])
@@ -339,4 +365,3 @@ def build_economy_stats(demo: Any) -> dict[str, pl.DataFrame]:
         "economy_per_round": economy_per_round,
         "economy_summary": economy_summary,
     }
-

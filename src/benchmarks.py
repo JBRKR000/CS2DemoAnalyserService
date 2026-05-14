@@ -407,7 +407,7 @@ def choose_best_context_pool(
     for pool, label in candidates:
         if len(metric_distribution(pool, metric)) >= min_samples:
             return pool, label
-    return samples, "global"
+    return [], "insufficient"
 
 
 def evaluate_metric(
@@ -439,6 +439,20 @@ def evaluate_metric(
 
     pool, context = choose_best_context_pool(samples, metric, map_name, side, min_samples=min_samples)
     population = metric_distribution(pool, metric)
+    if context == "insufficient":
+        population = metric_distribution(samples, metric)
+        return {
+            "metric": metric,
+            "value": float(value),
+            "percentile": None,
+            "sample_size": len(population),
+            "context": context,
+            "rating": "unknown",
+            "reason": "insufficient_population",
+            "count": None,
+            "required_count": None,
+        }
+
     pct = percentile_rank(float(value), population)
 
     if pct is None:
@@ -446,7 +460,7 @@ def evaluate_metric(
             "metric": metric,
             "value": float(value),
             "percentile": None,
-            "sample_size": 0,
+            "sample_size": len(population),
             "context": context,
             "rating": "unknown",
             "reason": "insufficient_population",
@@ -514,3 +528,6 @@ if __name__ == "__main__":
     merged = [s for s in contextual if s.get("side") == "ALL"][0]
     assert merged.get("rounds_played") == 20
     assert merged.get("counts", {}).get("kills") == 12
+    pool, label = choose_best_context_pool(contextual, "adr", "de_mirage", "ALL", min_samples=30)
+    assert label == "insufficient"
+    assert pool == []

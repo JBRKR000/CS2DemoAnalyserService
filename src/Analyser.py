@@ -5,7 +5,7 @@ from typing import Any
 import polars as pl
 
 from Parser import load_cached_demo
-from benchmarks import append_match_samples, evaluate_player, make_contextual_match_samples
+from benchmarks import append_match_samples, evaluate_player, load_benchmark_samples, make_contextual_match_samples
 from coach_metrics import _damages_df, _kills_df, _safe_df, build_raw_overall_stats
 from sectors.clutch import build_clutch_stats
 from sectors.economy import build_economy_stats
@@ -87,6 +87,8 @@ def _build_benchmark_player_rows(
     deaths_side = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "deaths": pl.Int64})
     assists_side = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "assists": pl.Int64})
     hs_kills_side = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "hs_kills": pl.Int64})
+    opening_duels_side = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "opening_duels": pl.Int64})
+    opening_duels_won_side = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "opening_duels_won": pl.Int64})
     if not kills.is_empty():
         if all(c in kills.columns for c in ["attacker_steamid", "attacker_side"]):
             kills_side = (
@@ -141,6 +143,70 @@ def _build_benchmark_player_rows(
                 .group_by(["steamid", "side"])
                 .agg(pl.len().alias("hs_kills"))
             )
+        if all(
+            c in kills.columns
+            for c in [
+                "round_num",
+                "tick",
+                "attacker_steamid",
+                "attacker_side",
+                "victim_steamid",
+                "victim_side",
+            ]
+        ):
+            opening_kills = (
+                kills.select(
+                    [
+                        "round_num",
+                        "tick",
+                        pl.col("attacker_steamid").alias("steamid"),
+                        pl.col("attacker_side").cast(pl.Utf8).str.to_uppercase().alias("side"),
+                    ]
+                )
+                .drop_nulls(["round_num", "tick", "steamid", "side"])
+                .sort(["round_num", "tick"])
+                .group_by("round_num", maintain_order=True)
+                .agg([pl.first("steamid").alias("steamid"), pl.first("side").alias("side")])
+                .filter(pl.col("side").is_in(["CT", "T"]))
+                .group_by(["steamid", "side"])
+                .agg(pl.len().alias("opening_duels_won"))
+            )
+            opening_deaths = (
+                kills.select(
+                    [
+                        "round_num",
+                        "tick",
+                        pl.col("victim_steamid").alias("steamid"),
+                        pl.col("victim_side").cast(pl.Utf8).str.to_uppercase().alias("side"),
+                    ]
+                )
+                .drop_nulls(["round_num", "tick", "steamid", "side"])
+                .sort(["round_num", "tick"])
+                .group_by("round_num", maintain_order=True)
+                .agg([pl.first("steamid").alias("steamid"), pl.first("side").alias("side")])
+                .filter(pl.col("side").is_in(["CT", "T"]))
+                .group_by(["steamid", "side"])
+                .agg(pl.len().alias("opening_duels_lost"))
+            )
+            opening_participants = pl.concat(
+                [
+                    opening_kills.with_columns(pl.lit(0).cast(pl.Int64).alias("opening_duels_lost")),
+                    opening_deaths.with_columns(pl.lit(0).cast(pl.Int64).alias("opening_duels_won")),
+                ],
+                how="vertical_relaxed",
+            )
+            opening_agg = (
+                opening_participants.group_by(["steamid", "side"])
+                .agg(
+                    [
+                        pl.col("opening_duels_won").sum().cast(pl.Int64).alias("opening_duels_won"),
+                        pl.col("opening_duels_lost").sum().cast(pl.Int64).alias("opening_duels_lost"),
+                    ]
+                )
+                .with_columns((pl.col("opening_duels_won") + pl.col("opening_duels_lost")).alias("opening_duels"))
+            )
+            opening_duels_side = opening_agg.select(["steamid", "side", "opening_duels"])
+            opening_duels_won_side = opening_agg.select(["steamid", "side", "opening_duels_won"])
 
     dmg_side = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "total_damage": pl.Int64})
     if not damages.is_empty() and all(c in damages.columns for c in ["attacker_steamid", "attacker_side", "damage"]):
@@ -235,7 +301,18 @@ def _build_benchmark_player_rows(
         )
 
     base = rounds_side
-    for frame in (kills_side, deaths_side, assists_side, hs_kills_side, dmg_side, econ_full, econ_force, clutch_side):
+    for frame in (
+        kills_side,
+        deaths_side,
+        assists_side,
+        hs_kills_side,
+        opening_duels_side,
+        opening_duels_won_side,
+        dmg_side,
+        econ_full,
+        econ_force,
+        clutch_side,
+    ):
         if not frame.is_empty():
             base = base.join(frame, on=["steamid", "side"], how="left")
 
@@ -245,6 +322,8 @@ def _build_benchmark_player_rows(
             pl.col("deaths").fill_null(0),
             pl.col("assists").fill_null(0),
             pl.col("hs_kills").fill_null(0),
+            pl.col("opening_duels").fill_null(0),
+            pl.col("opening_duels_won").fill_null(0),
             pl.col("total_damage").fill_null(0),
             pl.col("full_buy_rounds").fill_null(0),
             pl.col("full_buy_wins").fill_null(0),
@@ -267,6 +346,10 @@ def _build_benchmark_player_rows(
             .then((pl.col("hs_kills") / pl.col("kills") * 100.0).round(2))
             .otherwise(0.0)
             .alias("hs_percent"),
+            pl.when(pl.col("opening_duels") > 0)
+            .then((pl.col("opening_duels_won") / pl.col("opening_duels") * 100.0).round(2))
+            .otherwise(0.0)
+            .alias("opening_duel_win_pct"),
         ]
     )
 
@@ -356,6 +439,9 @@ def _build_benchmark_player_rows(
         "kast",
         "hs_percent",
         "kpr",
+        "opening_duels",
+        "opening_duels_won",
+        "opening_duel_win_pct",
         "full_buy_rounds",
         "full_buy_wins",
         "full_buy_win_rate",
@@ -406,40 +492,75 @@ def analyse_demo(demo, player_selector: str | int | None = None, match_id: str |
         ct_player_stats=ct_rows,
         t_player_stats=t_rows,
     )
-    all_samples = append_match_samples(match_samples)
+    historical_samples = load_benchmark_samples()
+    evaluation_samples = historical_samples if historical_samples else match_samples
+    benchmark_pool_source = "historical" if historical_samples else "current_match_fallback"
 
-    eval_side = str(selected_player_stats.get("start_side", "ALL")).upper()
-    selected_side_row = next(
-        (
-            row
-            for row in side_rows
-            if str(row.get("steamid")) == str(selected_steamid) and str(row.get("side", "")).upper() == eval_side
-        ),
-        {},
-    )
-    selected_metrics_for_eval = {
-        "adr": selected_side_row.get("adr", selected_player_stats.get("adr")),
-        "kast": selected_side_row.get("kast", selected_player_stats.get("kast")),
-        "hs_percent": selected_side_row.get("hs_percent", selected_player_stats.get("hs_percent")),
-        "kpr": selected_side_row.get("kpr", selected_player_stats.get("kpr")),
-        "full_buy_win_rate": selected_side_row.get("full_buy_win_rate", economy_summary_row.get("full_buy_win_rate")),
-        "force_win_rate": selected_side_row.get("force_win_rate", economy_summary_row.get("force_win_rate")),
-        "clutch_win_rate": selected_side_row.get("clutch_win_rate", clutch_summary_row.get("win_rate")),
-    }
-    benchmark_evaluations = evaluate_player(
-        selected_metrics_for_eval,
-        all_samples,
-        map_name=map_name,
-        side=eval_side if eval_side in {"CT", "T", "ALL"} else "ALL",
-        player_counts={
-            "kills": selected_side_row.get("kills"),
-            "full_buy_rounds": selected_side_row.get("full_buy_rounds"),
-            "force_rounds": selected_side_row.get("force_rounds"),
-            "clutch_attempts": selected_side_row.get("clutch_attempts"),
-            "opening_duels": selected_side_row.get("opening_duels"),
-        },
-        rounds_played=selected_side_row.get("rounds_played"),
-    )
+    def _selected_side_row(side: str) -> dict[str, Any]:
+        return next(
+            (
+                row
+                for row in side_rows
+                if str(row.get("steamid")) == str(selected_steamid)
+                and str(row.get("side", "")).upper() == side
+            ),
+            {},
+        )
+
+    def _evaluate_for_side(side: str) -> dict[str, Any]:
+        side_upper = side.upper()
+        if side_upper == "ALL":
+            metrics = {
+                "adr": selected_player_stats.get("adr"),
+                "kast": selected_player_stats.get("kast"),
+                "hs_percent": selected_player_stats.get("hs_percent"),
+                "kpr": selected_player_stats.get("kpr"),
+                "full_buy_win_rate": economy_summary_row.get("full_buy_win_rate"),
+                "force_win_rate": economy_summary_row.get("force_win_rate"),
+                "clutch_win_rate": clutch_summary_row.get("win_rate"),
+            }
+            counts = {
+                "kills": selected_player_stats.get("kills"),
+                "full_buy_rounds": economy_summary_row.get("full_buy_rounds"),
+                "force_rounds": economy_summary_row.get("force_rounds"),
+                "clutch_attempts": clutch_summary_row.get("attempts"),
+                "opening_duels": selected_player_stats.get("opening_duels"),
+            }
+            rounds = selected_player_stats.get("rounds_played")
+        else:
+            row = _selected_side_row(side_upper)
+            metrics = {
+                "adr": row.get("adr"),
+                "kast": row.get("kast"),
+                "hs_percent": row.get("hs_percent"),
+                "kpr": row.get("kpr"),
+                "full_buy_win_rate": row.get("full_buy_win_rate"),
+                "force_win_rate": row.get("force_win_rate"),
+                "clutch_win_rate": row.get("clutch_win_rate"),
+            }
+            counts = {
+                "kills": row.get("kills"),
+                "full_buy_rounds": row.get("full_buy_rounds"),
+                "force_rounds": row.get("force_rounds"),
+                "clutch_attempts": row.get("clutch_attempts"),
+                "opening_duels": row.get("opening_duels"),
+            }
+            rounds = row.get("rounds_played")
+
+        return evaluate_player(
+            metrics,
+            evaluation_samples,
+            map_name=map_name,
+            side=side_upper if side_upper in {"CT", "T", "ALL"} else "ALL",
+            player_counts=counts,
+            rounds_played=rounds,
+        )
+
+    benchmark_evaluations_all = _evaluate_for_side("ALL")
+    benchmark_evaluations_ct = _evaluate_for_side("CT")
+    benchmark_evaluations_t = _evaluate_for_side("T")
+    benchmark_evaluations = benchmark_evaluations_all
+    all_samples = append_match_samples(match_samples)
 
     feedback = generate_feedback(
         {
@@ -464,6 +585,16 @@ def analyse_demo(demo, player_selector: str | int | None = None, match_id: str |
         "economy_summary_selected": economy_summary_row,
         "clutch_summary_selected": clutch_summary_row,
         "benchmark_evaluations": benchmark_evaluations,
+        "benchmark_evaluations_all": benchmark_evaluations_all,
+        "benchmark_evaluations_ct": benchmark_evaluations_ct,
+        "benchmark_evaluations_t": benchmark_evaluations_t,
+        "benchmark_pool_source": benchmark_pool_source,
+        "benchmark_pool_size_before_append": len(historical_samples),
+        "benchmark_pool_size_after_append": len(all_samples),
+        "side_breakdown": {
+            "CT": benchmark_evaluations_ct,
+            "T": benchmark_evaluations_t,
+        },
         "feedback": feedback,
     }
 

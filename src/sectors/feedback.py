@@ -104,8 +104,12 @@ def generate_feedback(stats: dict[str, Any]) -> list[dict[str, Any]]:
     for metric, evaluation in benchmark_evals.items():
         if not isinstance(evaluation, dict):
             continue
+        # Feedback must be driven only by benchmark evaluation outcomes,
+        # never by raw metric values from the match payload.
         rating = str(evaluation.get("rating", "unknown"))
         if rating == "unknown":
+            continue
+        if evaluation.get("reason") is not None:
             continue
 
         percentile = evaluation.get("percentile")
@@ -150,4 +154,3 @@ def generate_feedback(stats: dict[str, Any]) -> list[dict[str, Any]]:
     if positive:
         return critical_warning + positive[:1]
     return critical_warning
-
