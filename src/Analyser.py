@@ -66,16 +66,12 @@ def _summary_row_for_player(summary_df: pl.DataFrame, steamid: int | None) -> di
     return row.to_dicts()[0]
 
 
-def _build_benchmark_player_rows(
-    demo: Any,
-) -> list[dict[str, Any]]:
-    ticks = _safe_df(getattr(demo, "ticks", None))
-    kills = _kills_df(demo)
-    damages = _damages_df(demo)
-
+def _round_counts_by_side(ticks: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Return (player_round_side, rounds_side). player_round_side is empty when ticks lack required columns."""
+    _empty_prs = pl.DataFrame(schema={"steamid": pl.UInt64, "name": pl.Utf8, "side": pl.Utf8, "round_num": pl.Int64})
+    _empty_rs = pl.DataFrame(schema={"steamid": pl.UInt64, "name": pl.Utf8, "side": pl.Utf8, "rounds_played": pl.UInt32})
     if ticks.is_empty() or not all(col in ticks.columns for col in ["steamid", "name", "side", "round_num"]):
-        return []
-
+        return _empty_prs, _empty_rs
     player_round_side = (
         ticks.select(["steamid", "name", "side", "round_num"])
         .drop_nulls(["steamid", "side", "round_num"])
@@ -83,248 +79,287 @@ def _build_benchmark_player_rows(
         .filter(pl.col("side").is_in(["CT", "T"]))
         .unique()
     )
-    if player_round_side.is_empty():
-        return []
-
     rounds_side = (
         player_round_side.group_by(["steamid", "name", "side"])
         .agg(pl.len().alias("rounds_played"))
     )
+    return player_round_side, rounds_side
 
+
+def _kill_stats_by_side(
+    kills: pl.DataFrame,
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+    """Return (kills_side, deaths_side, assists_side, hs_kills_side)."""
     kills_side = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "kills": pl.Int64})
     deaths_side = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "deaths": pl.Int64})
     assists_side = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "assists": pl.Int64})
     hs_kills_side = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "hs_kills": pl.Int64})
+    if kills.is_empty():
+        return kills_side, deaths_side, assists_side, hs_kills_side
+    if all(c in kills.columns for c in ["attacker_steamid", "attacker_side"]):
+        kills_side = (
+            kills.select(
+                [pl.col("attacker_steamid").alias("steamid"), pl.col("attacker_side").cast(pl.Utf8).str.to_uppercase().alias("side")]
+            )
+            .drop_nulls(["steamid", "side"])
+            .filter(pl.col("side").is_in(["CT", "T"]))
+            .group_by(["steamid", "side"])
+            .agg(pl.len().alias("kills"))
+        )
+    if all(c in kills.columns for c in ["victim_steamid", "victim_side"]):
+        deaths_side = (
+            kills.select(
+                [pl.col("victim_steamid").alias("steamid"), pl.col("victim_side").cast(pl.Utf8).str.to_uppercase().alias("side")]
+            )
+            .drop_nulls(["steamid", "side"])
+            .filter(pl.col("side").is_in(["CT", "T"]))
+            .group_by(["steamid", "side"])
+            .agg(pl.len().alias("deaths"))
+        )
+    if all(c in kills.columns for c in ["assister_steamid", "assister_side"]):
+        assists_side = (
+            kills.select(
+                [pl.col("assister_steamid").alias("steamid"), pl.col("assister_side").cast(pl.Utf8).str.to_uppercase().alias("side")]
+            )
+            .drop_nulls(["steamid", "side"])
+            .filter(pl.col("side").is_in(["CT", "T"]))
+            .group_by(["steamid", "side"])
+            .agg(pl.len().alias("assists"))
+        )
+    if all(c in kills.columns for c in ["attacker_steamid", "attacker_side", "headshot"]):
+        hs_kills_side = (
+            kills.select(
+                [pl.col("attacker_steamid").alias("steamid"), pl.col("attacker_side").cast(pl.Utf8).str.to_uppercase().alias("side"), "headshot"]
+            )
+            .drop_nulls(["steamid", "side"])
+            .filter(pl.col("side").is_in(["CT", "T"]) & pl.col("headshot"))
+            .group_by(["steamid", "side"])
+            .agg(pl.len().alias("hs_kills"))
+        )
+    return kills_side, deaths_side, assists_side, hs_kills_side
+
+
+def _opening_duel_stats_by_side(kills: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Return (opening_duels_side, opening_duels_won_side)."""
     opening_duels_side = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "opening_duels": pl.Int64})
     opening_duels_won_side = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "opening_duels_won": pl.Int64})
-    if not kills.is_empty():
-        if all(c in kills.columns for c in ["attacker_steamid", "attacker_side"]):
-            kills_side = (
-                kills.select(
-                    [
-                        pl.col("attacker_steamid").alias("steamid"),
-                        pl.col("attacker_side").cast(pl.Utf8).str.to_uppercase().alias("side"),
-                    ]
-                )
-                .drop_nulls(["steamid", "side"])
-                .filter(pl.col("side").is_in(["CT", "T"]))
-                .group_by(["steamid", "side"])
-                .agg(pl.len().alias("kills"))
-            )
-        if all(c in kills.columns for c in ["victim_steamid", "victim_side"]):
-            deaths_side = (
-                kills.select(
-                    [
-                        pl.col("victim_steamid").alias("steamid"),
-                        pl.col("victim_side").cast(pl.Utf8).str.to_uppercase().alias("side"),
-                    ]
-                )
-                .drop_nulls(["steamid", "side"])
-                .filter(pl.col("side").is_in(["CT", "T"]))
-                .group_by(["steamid", "side"])
-                .agg(pl.len().alias("deaths"))
-            )
-        if all(c in kills.columns for c in ["assister_steamid", "assister_side"]):
-            assists_side = (
-                kills.select(
-                    [
-                        pl.col("assister_steamid").alias("steamid"),
-                        pl.col("assister_side").cast(pl.Utf8).str.to_uppercase().alias("side"),
-                    ]
-                )
-                .drop_nulls(["steamid", "side"])
-                .filter(pl.col("side").is_in(["CT", "T"]))
-                .group_by(["steamid", "side"])
-                .agg(pl.len().alias("assists"))
-            )
-        if all(c in kills.columns for c in ["attacker_steamid", "attacker_side", "headshot"]):
-            hs_kills_side = (
-                kills.select(
-                    [
-                        pl.col("attacker_steamid").alias("steamid"),
-                        pl.col("attacker_side").cast(pl.Utf8).str.to_uppercase().alias("side"),
-                        "headshot",
-                    ]
-                )
-                .drop_nulls(["steamid", "side"])
-                .filter(pl.col("side").is_in(["CT", "T"]) & pl.col("headshot"))
-                .group_by(["steamid", "side"])
-                .agg(pl.len().alias("hs_kills"))
-            )
-        if all(
-            c in kills.columns
-            for c in [
-                "round_num",
-                "tick",
-                "attacker_steamid",
-                "attacker_side",
-                "victim_steamid",
-                "victim_side",
-            ]
-        ):
-            opening_kills = (
-                kills.select(
-                    [
-                        "round_num",
-                        "tick",
-                        pl.col("attacker_steamid").alias("steamid"),
-                        pl.col("attacker_side").cast(pl.Utf8).str.to_uppercase().alias("side"),
-                    ]
-                )
-                .drop_nulls(["round_num", "tick", "steamid", "side"])
-                .sort(["round_num", "tick"])
-                .group_by("round_num", maintain_order=True)
-                .agg([pl.first("steamid").alias("steamid"), pl.first("side").alias("side")])
-                .filter(pl.col("side").is_in(["CT", "T"]))
-                .group_by(["steamid", "side"])
-                .agg(pl.len().alias("opening_duels_won"))
-            )
-            opening_deaths = (
-                kills.select(
-                    [
-                        "round_num",
-                        "tick",
-                        pl.col("victim_steamid").alias("steamid"),
-                        pl.col("victim_side").cast(pl.Utf8).str.to_uppercase().alias("side"),
-                    ]
-                )
-                .drop_nulls(["round_num", "tick", "steamid", "side"])
-                .sort(["round_num", "tick"])
-                .group_by("round_num", maintain_order=True)
-                .agg([pl.first("steamid").alias("steamid"), pl.first("side").alias("side")])
-                .filter(pl.col("side").is_in(["CT", "T"]))
-                .group_by(["steamid", "side"])
-                .agg(pl.len().alias("opening_duels_lost"))
-            )
-            opening_participants = pl.concat(
-                [
-                    opening_kills.with_columns(pl.lit(0).cast(pl.Int64).alias("opening_duels_lost")).select(
-                        ["steamid", "side", "opening_duels_won", "opening_duels_lost"]
-                    ),
-                    opening_deaths.with_columns(pl.lit(0).cast(pl.Int64).alias("opening_duels_won")).select(
-                        ["steamid", "side", "opening_duels_won", "opening_duels_lost"]
-                    ),
-                ],
-                how="vertical_relaxed",
-            )
-            opening_agg = (
-                opening_participants.group_by(["steamid", "side"])
-                .agg(
-                    [
-                        pl.col("opening_duels_won").sum().cast(pl.Int64).alias("opening_duels_won"),
-                        pl.col("opening_duels_lost").sum().cast(pl.Int64).alias("opening_duels_lost"),
-                    ]
-                )
-                .with_columns((pl.col("opening_duels_won") + pl.col("opening_duels_lost")).alias("opening_duels"))
-            )
-            opening_duels_side = opening_agg.select(["steamid", "side", "opening_duels"])
-            opening_duels_won_side = opening_agg.select(["steamid", "side", "opening_duels_won"])
-
-    dmg_side = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "total_damage": pl.Int64})
-    if not damages.is_empty() and all(c in damages.columns for c in ["attacker_steamid", "attacker_side", "damage"]):
-        d = damages.select(
+    if kills.is_empty() or not all(
+        c in kills.columns for c in ["round_num", "tick", "attacker_steamid", "attacker_side", "victim_steamid", "victim_side"]
+    ):
+        return opening_duels_side, opening_duels_won_side
+    opening_kills = (
+        kills.select(
+            ["round_num", "tick", pl.col("attacker_steamid").alias("steamid"), pl.col("attacker_side").cast(pl.Utf8).str.to_uppercase().alias("side")]
+        )
+        .drop_nulls(["round_num", "tick", "steamid", "side"])
+        .sort(["round_num", "tick"])
+        .group_by("round_num", maintain_order=True)
+        .agg([pl.first("steamid").alias("steamid"), pl.first("side").alias("side")])
+        .filter(pl.col("side").is_in(["CT", "T"]))
+        .group_by(["steamid", "side"])
+        .agg(pl.len().alias("opening_duels_won"))
+    )
+    opening_deaths = (
+        kills.select(
+            ["round_num", "tick", pl.col("victim_steamid").alias("steamid"), pl.col("victim_side").cast(pl.Utf8).str.to_uppercase().alias("side")]
+        )
+        .drop_nulls(["round_num", "tick", "steamid", "side"])
+        .sort(["round_num", "tick"])
+        .group_by("round_num", maintain_order=True)
+        .agg([pl.first("steamid").alias("steamid"), pl.first("side").alias("side")])
+        .filter(pl.col("side").is_in(["CT", "T"]))
+        .group_by(["steamid", "side"])
+        .agg(pl.len().alias("opening_duels_lost"))
+    )
+    opening_agg = (
+        pl.concat(
             [
-                pl.col("attacker_steamid").alias("steamid"),
-                pl.col("attacker_side").cast(pl.Utf8).str.to_uppercase().alias("side"),
-                "damage",
-                pl.col("victim_side").cast(pl.Utf8).str.to_uppercase().alias("victim_side")
-                if "victim_side" in damages.columns
-                else pl.lit(None).alias("victim_side"),
+                opening_kills.with_columns(pl.lit(0).cast(pl.Int64).alias("opening_duels_lost")).select(
+                    ["steamid", "side", "opening_duels_won", "opening_duels_lost"]
+                ),
+                opening_deaths.with_columns(pl.lit(0).cast(pl.Int64).alias("opening_duels_won")).select(
+                    ["steamid", "side", "opening_duels_won", "opening_duels_lost"]
+                ),
+            ],
+            how="vertical_relaxed",
+        )
+        .group_by(["steamid", "side"])
+        .agg(
+            [
+                pl.col("opening_duels_won").sum().cast(pl.Int64).alias("opening_duels_won"),
+                pl.col("opening_duels_lost").sum().cast(pl.Int64).alias("opening_duels_lost"),
             ]
-        ).drop_nulls(["steamid", "side"])
-        d = d.filter(pl.col("side").is_in(["CT", "T"]))
-        if "victim_side" in d.columns:
-            d = d.filter(
-                pl.col("victim_side").is_null()
-                | ~pl.col("victim_side").is_in(["CT", "T"])
-                | (pl.col("side") != pl.col("victim_side"))
-            )
-        dmg_side = d.group_by(["steamid", "side"]).agg(pl.col("damage").sum().cast(pl.Int64).alias("total_damage"))
+        )
+        .with_columns((pl.col("opening_duels_won") + pl.col("opening_duels_lost")).alias("opening_duels"))
+    )
+    return opening_agg.select(["steamid", "side", "opening_duels"]), opening_agg.select(["steamid", "side", "opening_duels_won"])
 
-    economy_stats = build_economy_stats(demo)
-    econ_per_round = economy_stats.get("economy_per_round", pl.DataFrame())
+
+def _damage_stats_by_side(damages: pl.DataFrame) -> pl.DataFrame:
+    """Return dmg_side with total enemy damage per player per side."""
+    dmg_side = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "total_damage": pl.Int64})
+    if damages.is_empty() or not all(c in damages.columns for c in ["attacker_steamid", "attacker_side", "damage"]):
+        return dmg_side
+    d = damages.select(
+        [
+            pl.col("attacker_steamid").alias("steamid"),
+            pl.col("attacker_side").cast(pl.Utf8).str.to_uppercase().alias("side"),
+            "damage",
+            pl.col("victim_side").cast(pl.Utf8).str.to_uppercase().alias("victim_side")
+            if "victim_side" in damages.columns
+            else pl.lit(None).alias("victim_side"),
+        ]
+    ).drop_nulls(["steamid", "side"])
+    d = d.filter(pl.col("side").is_in(["CT", "T"]))
+    if "victim_side" in d.columns:
+        d = d.filter(
+            pl.col("victim_side").is_null()
+            | ~pl.col("victim_side").is_in(["CT", "T"])
+            | (pl.col("side") != pl.col("victim_side"))
+        )
+    return d.group_by(["steamid", "side"]).agg(pl.col("damage").sum().cast(pl.Int64).alias("total_damage"))
+
+
+def _economy_stats_by_side(demo: Any) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Return (econ_full, econ_force) — win rates per buy type, per player per side."""
     econ_full = pl.DataFrame(
-        schema={
-            "steamid": pl.UInt64,
-            "side": pl.Utf8,
-            "full_buy_rounds": pl.Int64,
-            "full_buy_wins": pl.Int64,
-            "full_buy_win_rate": pl.Float64,
-        }
+        schema={"steamid": pl.UInt64, "side": pl.Utf8, "full_buy_rounds": pl.Int64, "full_buy_wins": pl.Int64, "full_buy_win_rate": pl.Float64}
     )
     econ_force = pl.DataFrame(
-        schema={
-            "steamid": pl.UInt64,
-            "side": pl.Utf8,
-            "force_rounds": pl.Int64,
-            "force_wins": pl.Int64,
-            "force_win_rate": pl.Float64,
-        }
+        schema={"steamid": pl.UInt64, "side": pl.Utf8, "force_rounds": pl.Int64, "force_wins": pl.Int64, "force_win_rate": pl.Float64}
     )
-    if not econ_per_round.is_empty() and all(
-        c in econ_per_round.columns for c in ["steamid", "side", "buy_type", "round_winner"]
-    ):
-        econ_base = econ_per_round.with_columns(pl.col("side").cast(pl.Utf8).str.to_uppercase())
-        econ_full = (
-            econ_base.filter(pl.col("buy_type") == "full_buy")
-            .group_by(["steamid", "side"])
-            .agg(
-                [
-                    pl.len().cast(pl.Int64).alias("full_buy_rounds"),
-                    pl.col("round_winner").cast(pl.Int64).sum().cast(pl.Int64).alias("full_buy_wins"),
-                    ((pl.col("round_winner").cast(pl.Int64).sum() / pl.len()) * 100.0).round(2).alias("full_buy_win_rate"),
-                ]
-            )
+    economy_stats = build_economy_stats(demo)
+    econ_per_round = economy_stats.get("economy_per_round", pl.DataFrame())
+    if econ_per_round.is_empty() or not all(c in econ_per_round.columns for c in ["steamid", "side", "buy_type", "round_winner"]):
+        return econ_full, econ_force
+    econ_base = econ_per_round.with_columns(pl.col("side").cast(pl.Utf8).str.to_uppercase())
+    econ_full = (
+        econ_base.filter(pl.col("buy_type") == "full_buy")
+        .group_by(["steamid", "side"])
+        .agg(
+            [
+                pl.len().cast(pl.Int64).alias("full_buy_rounds"),
+                pl.col("round_winner").cast(pl.Int64).sum().cast(pl.Int64).alias("full_buy_wins"),
+                ((pl.col("round_winner").cast(pl.Int64).sum() / pl.len()) * 100.0).round(2).alias("full_buy_win_rate"),
+            ]
         )
-        econ_force = (
-            econ_base.filter(pl.col("buy_type") == "force")
-            .group_by(["steamid", "side"])
-            .agg(
-                [
-                    pl.len().cast(pl.Int64).alias("force_rounds"),
-                    pl.col("round_winner").cast(pl.Int64).sum().cast(pl.Int64).alias("force_wins"),
-                    ((pl.col("round_winner").cast(pl.Int64).sum() / pl.len()) * 100.0).round(2).alias("force_win_rate"),
-                ]
-            )
+    )
+    econ_force = (
+        econ_base.filter(pl.col("buy_type") == "force")
+        .group_by(["steamid", "side"])
+        .agg(
+            [
+                pl.len().cast(pl.Int64).alias("force_rounds"),
+                pl.col("round_winner").cast(pl.Int64).sum().cast(pl.Int64).alias("force_wins"),
+                ((pl.col("round_winner").cast(pl.Int64).sum() / pl.len()) * 100.0).round(2).alias("force_win_rate"),
+            ]
         )
+    )
+    return econ_full, econ_force
 
+
+def _clutch_stats_by_side(demo: Any) -> pl.DataFrame:
+    """Return clutch_side — clutch attempts, wins and win rate per player per side."""
+    clutch_side = pl.DataFrame(
+        schema={"steamid": pl.UInt64, "side": pl.Utf8, "clutch_attempts": pl.Int64, "clutches_won": pl.Int64, "clutch_win_rate": pl.Float64}
+    )
     clutch_stats = build_clutch_stats(demo)
     clutch_rounds = clutch_stats.get("clutch_rounds", pl.DataFrame())
-    clutch_side = pl.DataFrame(
-        schema={
-            "steamid": pl.UInt64,
-            "side": pl.Utf8,
-            "clutch_attempts": pl.Int64,
-            "clutches_won": pl.Int64,
-            "clutch_win_rate": pl.Float64,
-        }
-    )
-    if not clutch_rounds.is_empty() and all(c in clutch_rounds.columns for c in ["steamid", "side", "won"]):
-        clutch_side = (
-            clutch_rounds.with_columns(pl.col("side").cast(pl.Utf8).str.to_uppercase())
-            .group_by(["steamid", "side"])
-            .agg(
-                [
-                    pl.len().cast(pl.Int64).alias("clutch_attempts"),
-                    pl.col("won").cast(pl.Int64).sum().cast(pl.Int64).alias("clutches_won"),
-                    ((pl.col("won").cast(pl.Int64).sum() / pl.len()) * 100.0).round(2).alias("clutch_win_rate"),
-                ]
-            )
+    if clutch_rounds.is_empty() or not all(c in clutch_rounds.columns for c in ["steamid", "side", "won"]):
+        return clutch_side
+    return (
+        clutch_rounds.with_columns(pl.col("side").cast(pl.Utf8).str.to_uppercase())
+        .group_by(["steamid", "side"])
+        .agg(
+            [
+                pl.len().cast(pl.Int64).alias("clutch_attempts"),
+                pl.col("won").cast(pl.Int64).sum().cast(pl.Int64).alias("clutches_won"),
+                ((pl.col("won").cast(pl.Int64).sum() / pl.len()) * 100.0).round(2).alias("clutch_win_rate"),
+            ]
         )
+    )
+
+
+def _kast_by_side(kills: pl.DataFrame, player_round_side: pl.DataFrame) -> pl.DataFrame:
+    """Return kast_side — KAST% per player per side."""
+    had_kill = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "round_num": pl.Int64, "had_kill": pl.Boolean})
+    had_assist = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "round_num": pl.Int64, "had_assist": pl.Boolean})
+    deaths = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "round_num": pl.Int64})
+    if not kills.is_empty():
+        if all(c in kills.columns for c in ["attacker_steamid", "attacker_side", "round_num"]):
+            had_kill = (
+                kills.select(
+                    [pl.col("attacker_steamid").alias("steamid"), pl.col("attacker_side").cast(pl.Utf8).str.to_uppercase().alias("side"), "round_num"]
+                )
+                .drop_nulls(["steamid", "side", "round_num"])
+                .filter(pl.col("side").is_in(["CT", "T"]))
+                .unique()
+                .with_columns(pl.lit(True).alias("had_kill"))
+            )
+        if all(c in kills.columns for c in ["assister_steamid", "assister_side", "round_num"]):
+            had_assist = (
+                kills.select(
+                    [pl.col("assister_steamid").alias("steamid"), pl.col("assister_side").cast(pl.Utf8).str.to_uppercase().alias("side"), "round_num"]
+                )
+                .drop_nulls(["steamid", "side", "round_num"])
+                .filter(pl.col("side").is_in(["CT", "T"]))
+                .unique()
+                .with_columns(pl.lit(True).alias("had_assist"))
+            )
+        if all(c in kills.columns for c in ["victim_steamid", "victim_side", "round_num"]):
+            deaths = (
+                kills.select(
+                    [pl.col("victim_steamid").alias("steamid"), pl.col("victim_side").cast(pl.Utf8).str.to_uppercase().alias("side"), "round_num"]
+                )
+                .drop_nulls(["steamid", "side", "round_num"])
+                .filter(pl.col("side").is_in(["CT", "T"]))
+                .unique()
+            )
+    prs = player_round_side.select(["steamid", "side", "round_num"]).unique()
+    kast_base = prs
+    for frame in (had_kill, had_assist):
+        if not frame.is_empty():
+            kast_base = kast_base.join(frame, on=["steamid", "side", "round_num"], how="left")
+    kast_base = kast_base.join(
+        deaths.with_columns(pl.lit(True).alias("died")) if not deaths.is_empty() else deaths,
+        on=["steamid", "side", "round_num"],
+        how="left",
+    )
+    kast_base = kast_base.with_columns(
+        [
+            pl.col("had_kill").fill_null(False),
+            pl.col("had_assist").fill_null(False),
+            pl.col("died").fill_null(False),
+        ]
+    ).with_columns((~pl.col("died")).alias("survived"))
+    kast_base = kast_base.with_columns(
+        (pl.col("had_kill") | pl.col("had_assist") | pl.col("survived")).alias("kast_round")
+    )
+    return (
+        kast_base.group_by(["steamid", "side"])
+        .agg((pl.col("kast_round").cast(pl.Int64).sum() / pl.len() * 100.0).round(2).alias("kast"))
+    )
+
+
+def _build_benchmark_player_rows(
+    demo: Any,
+) -> list[dict[str, Any]]:
+    ticks = _safe_df(getattr(demo, "ticks", None))
+    kills = _kills_df(demo)
+    damages = _damages_df(demo)
+
+    player_round_side, rounds_side = _round_counts_by_side(ticks)
+    if player_round_side.is_empty():
+        return []
+
+    kills_side, deaths_side, assists_side, hs_kills_side = _kill_stats_by_side(kills)
+    opening_duels_side, opening_duels_won_side = _opening_duel_stats_by_side(kills)
+    dmg_side = _damage_stats_by_side(damages)
+    econ_full, econ_force = _economy_stats_by_side(demo)
+    clutch_side = _clutch_stats_by_side(demo)
 
     base = rounds_side
-    for frame in (
-        kills_side,
-        deaths_side,
-        assists_side,
-        hs_kills_side,
-        opening_duels_side,
-        opening_duels_won_side,
-        dmg_side,
-        econ_full,
-        econ_force,
-        clutch_side,
-    ):
+    for frame in (kills_side, deaths_side, assists_side, hs_kills_side, opening_duels_side, opening_duels_won_side, dmg_side, econ_full, econ_force, clutch_side):
         if not frame.is_empty():
             base = base.join(frame, on=["steamid", "side"], how="left")
 
@@ -365,103 +400,14 @@ def _build_benchmark_player_rows(
         ]
     )
 
-    # Side KAST approximation from side-specific K/A/S events per round.
-    had_kill = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "round_num": pl.Int64, "had_kill": pl.Boolean})
-    had_assist = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "round_num": pl.Int64, "had_assist": pl.Boolean})
-    deaths = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "round_num": pl.Int64})
-    if not kills.is_empty():
-        if all(c in kills.columns for c in ["attacker_steamid", "attacker_side", "round_num"]):
-            had_kill = (
-                kills.select(
-                    [
-                        pl.col("attacker_steamid").alias("steamid"),
-                        pl.col("attacker_side").cast(pl.Utf8).str.to_uppercase().alias("side"),
-                        "round_num",
-                    ]
-                )
-                .drop_nulls(["steamid", "side", "round_num"])
-                .filter(pl.col("side").is_in(["CT", "T"]))
-                .unique()
-                .with_columns(pl.lit(True).alias("had_kill"))
-            )
-        if all(c in kills.columns for c in ["assister_steamid", "assister_side", "round_num"]):
-            had_assist = (
-                kills.select(
-                    [
-                        pl.col("assister_steamid").alias("steamid"),
-                        pl.col("assister_side").cast(pl.Utf8).str.to_uppercase().alias("side"),
-                        "round_num",
-                    ]
-                )
-                .drop_nulls(["steamid", "side", "round_num"])
-                .filter(pl.col("side").is_in(["CT", "T"]))
-                .unique()
-                .with_columns(pl.lit(True).alias("had_assist"))
-            )
-        if all(c in kills.columns for c in ["victim_steamid", "victim_side", "round_num"]):
-            deaths = (
-                kills.select(
-                    [
-                        pl.col("victim_steamid").alias("steamid"),
-                        pl.col("victim_side").cast(pl.Utf8).str.to_uppercase().alias("side"),
-                        "round_num",
-                    ]
-                )
-                .drop_nulls(["steamid", "side", "round_num"])
-                .filter(pl.col("side").is_in(["CT", "T"]))
-                .unique()
-            )
-
-    prs = player_round_side.select(["steamid", "side", "round_num"]).unique()
-    kast_base = prs
-    for frame in (had_kill, had_assist):
-        if not frame.is_empty():
-            kast_base = kast_base.join(frame, on=["steamid", "side", "round_num"], how="left")
-    kast_base = kast_base.join(
-        deaths.with_columns(pl.lit(True).alias("died")) if not deaths.is_empty() else deaths,
-        on=["steamid", "side", "round_num"],
-        how="left",
-    )
-    kast_base = kast_base.with_columns(
-        [
-            pl.col("had_kill").fill_null(False),
-            pl.col("had_assist").fill_null(False),
-            pl.col("died").fill_null(False),
-        ]
-    ).with_columns((~pl.col("died")).alias("survived"))
-    kast_base = kast_base.with_columns(
-        (pl.col("had_kill") | pl.col("had_assist") | pl.col("survived")).alias("kast_round")
-    )
-    kast_side = (
-        kast_base.group_by(["steamid", "side"])
-        .agg((pl.col("kast_round").cast(pl.Int64).sum() / pl.len() * 100.0).round(2).alias("kast"))
-    )
+    kast_side = _kast_by_side(kills, player_round_side)
     base = base.join(kast_side, on=["steamid", "side"], how="left").with_columns(pl.col("kast").fill_null(0.0))
 
     cols = [
-        "steamid",
-        "name",
-        "side",
-        "rounds_played",
-        "kills",
-        "deaths",
-        "assists",
-        "hs_kills",
-        "adr",
-        "kast",
-        "hs_percent",
-        "kpr",
-        "opening_duels",
-        "opening_duels_won",
-        "opening_duel_win_pct",
-        "full_buy_rounds",
-        "full_buy_wins",
-        "full_buy_win_rate",
-        "force_rounds",
-        "force_wins",
-        "force_win_rate",
-        "clutch_attempts",
-        "clutches_won",
+        "steamid", "name", "side", "rounds_played", "kills", "deaths", "assists", "hs_kills",
+        "adr", "kast", "hs_percent", "kpr", "opening_duels", "opening_duels_won",
+        "opening_duel_win_pct", "full_buy_rounds", "full_buy_wins", "full_buy_win_rate",
+        "force_rounds", "force_wins", "force_win_rate", "clutch_attempts", "clutches_won",
         "clutch_win_rate",
     ]
     return (
@@ -469,6 +415,7 @@ def _build_benchmark_player_rows(
         .rename({"hs_kills": "headshot_kills"} if "hs_kills" in base.columns else {})
         .to_dicts()
     )
+
 
 
 def analyse_demo(demo, player_selector: str | int | None = None, match_id: str | None = None):

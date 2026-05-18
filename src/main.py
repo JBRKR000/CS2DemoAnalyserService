@@ -4,6 +4,7 @@ from pathlib import Path
 import colorlog
 
 from Analyser import load_demo_for_analysis, analyse_demo
+from benchmarks import MIN_BENCHMARK_POOL_SIZE
 from Parser import compute_file_sha256, get_demo
 
 
@@ -78,7 +79,7 @@ def _log_benchmark_block(title: str, evaluations: dict) -> None:
     }
 
     logger.info("%s", title)
-    logger.info("%-10s | %-9s | %-8s | %-7s | %-12s | %-12s", "Metric", "Value", "Percentyl", "Rating", "Kontekst", "Powod")
+    logger.info("%-10s | %-9s | %-8s | %-7s | %-12s | %-12s", "Metric", "Value", "Percentile", "Rating", "Context", "Reason")
     logger.info("%s", "-" * 76)
 
     for metric in metric_order:
@@ -173,12 +174,20 @@ def main() -> None:
     )
     logger.info("Economy summary (selected): %s", econ)
     logger.info("Clutch summary (selected): %s", clutch)
+    pool_size_after = analysis.get("benchmark_pool_size_after_append", 0) or 0
     logger.info(
         "Benchmark pool: source=%s before=%s after=%s",
         analysis.get("benchmark_pool_source", "-"),
         analysis.get("benchmark_pool_size_before_append", "-"),
-        analysis.get("benchmark_pool_size_after_append", "-"),
+        pool_size_after,
     )
+    if pool_size_after < MIN_BENCHMARK_POOL_SIZE:
+        logger.warning(
+            "Benchmark pool has only %d samples — percentile results may be unreliable. "
+            "Analyze more demos to grow the pool (need at least %d).",
+            pool_size_after,
+            MIN_BENCHMARK_POOL_SIZE,
+        )
     _log_benchmark_block("Benchmark evaluations (ALL)", benchmark_all if benchmark_all else benchmark_evals)
     _log_benchmark_block("Benchmark evaluations (CT)", benchmark_ct)
     _log_benchmark_block("Benchmark evaluations (T)", benchmark_t)

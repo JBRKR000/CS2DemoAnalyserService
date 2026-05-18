@@ -12,6 +12,7 @@ from typing import Any
 DEFAULT_BENCHMARKS_PATH = "src/benchmarks/local_benchmarks.json"
 DEFAULT_ANALYZED_MATCHES_PATH = "src/benchmarks/analyzed_matches.json"
 SCHEMA_VERSION = 1
+MIN_BENCHMARK_POOL_SIZE = 20
 
 KNOWN_METRICS = {
     "adr",
@@ -445,13 +446,15 @@ def choose_best_context_pool(
     min_samples: int = 30,
 ) -> tuple[list[dict], str]:
     candidates: list[tuple[list[dict], str]] = []
-    if map_name is not None and side is not None:
-        candidates.append((filter_samples(samples, map_name=map_name, side=side), "map+side"))
-    if map_name is not None:
-        candidates.append((filter_samples(samples, map_name=map_name, side=None), "map"))
     if side is not None:
+        side = side.upper()
+        if map_name is not None:
+            candidates.append((filter_samples(samples, map_name=map_name, side=side), "map+side"))
         candidates.append((filter_samples(samples, map_name=None, side=side), "side"))
-    candidates.append((samples, "global"))
+    else:
+        if map_name is not None:
+            candidates.append((filter_samples(samples, map_name=map_name, side=None), "map"))
+        candidates.append((samples, "global"))
 
     for pool, label in candidates:
         if len(metric_distribution(pool, metric)) >= min_samples:
@@ -489,7 +492,6 @@ def evaluate_metric(
     pool, context = choose_best_context_pool(samples, metric, map_name, side, min_samples=min_samples)
     population = metric_distribution(pool, metric)
     if context == "insufficient":
-        population = metric_distribution(samples, metric)
         return {
             "metric": metric,
             "value": float(value),
@@ -578,5 +580,48 @@ if __name__ == "__main__":
     assert merged.get("rounds_played") == 20
     assert merged.get("counts", {}).get("kills") == 12
     pool, label = choose_best_context_pool(contextual, "adr", "de_mirage", "ALL", min_samples=30)
+    assert label == "insufficient"
+    assert pool == []
+
+    synthetic_samples: list[dict] = []
+    for idx in range(10):
+        player_id = str(idx + 1)
+        synthetic_samples.extend(
+            [
+                {
+                    "steamid": player_id,
+                    "name": f"p{player_id}",
+                    "map_name": "de_mirage",
+                    "side": "CT",
+                    "rounds_played": 12,
+                    "metrics": {"adr": 70.0 + idx},
+                    "counts": {},
+                },
+                {
+                    "steamid": player_id,
+                    "name": f"p{player_id}",
+                    "map_name": "de_mirage",
+                    "side": "T",
+                    "rounds_played": 12,
+                    "metrics": {"adr": 75.0 + idx},
+                    "counts": {},
+                },
+                {
+                    "steamid": player_id,
+                    "name": f"p{player_id}",
+                    "map_name": "de_mirage",
+                    "side": "ALL",
+                    "rounds_played": 24,
+                    "metrics": {"adr": 72.5 + idx},
+                    "counts": {},
+                },
+            ]
+        )
+
+    pool, label = choose_best_context_pool(synthetic_samples, "adr", "de_mirage", "CT", min_samples=20)
+    assert label == "insufficient"
+    assert pool == []
+
+    pool, label = choose_best_context_pool(synthetic_samples, "adr", "de_mirage", "ALL", min_samples=20)
     assert label == "insufficient"
     assert pool == []
