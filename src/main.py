@@ -194,12 +194,14 @@ def main() -> None:
     logger.info("Feedback tips count: %d", len(feedback))
     for idx, tip in enumerate(feedback, start=1):
         logger.info(
-            "Tip %d | [%s/%s] %s | %s",
+            "Tip %d | [%s/%s] %s | %s | metric=%s | value=%s",
             idx,
             tip.get("severity", ""),
             tip.get("category", ""),
             tip.get("title", ""),
             tip.get("message", ""),
+            tip.get("metric", ""),
+            tip.get("value", ""),
         )
 
 

@@ -26,6 +26,7 @@ def _tip(
     value: float,
     percentile: float | None,
     context: str,
+    benchmark: float | None = None,
 ) -> dict[str, Any]:
     return {
         "category": category,
@@ -34,6 +35,7 @@ def _tip(
         "message": message,
         "metric": metric,
         "value": round(value, 2),
+        "benchmark": round(benchmark, 2) if benchmark is not None else None,
         "percentile": round(percentile, 2) if percentile is not None else None,
         "context": context,
     }
@@ -93,6 +95,143 @@ def _message(metric: str, value: float, percentile: float, context: str, severit
     return f"{prefix} Keep refining this area with focused VOD review."
 
 
+def _to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _impact_tips(stats: dict[str, Any]) -> list[dict[str, Any]]:
+    selected_impact = stats.get("selected_player_impact")
+    if not isinstance(selected_impact, dict) or not selected_impact:
+        return []
+    impact_row = selected_impact
+
+    deaths = int(_to_float(impact_row.get("deaths"), 0.0))
+    opening_kills = int(_to_float(impact_row.get("opening_kills"), 0.0))
+    untraded_deaths = int(_to_float(impact_row.get("untraded_deaths"), 0.0))
+    opening_duels = int(_to_float(impact_row.get("opening_duels"), 0.0))
+    opening_duel_win_pct = _to_float(impact_row.get("opening_duel_win_pct"), 0.0)
+    untraded_death_rate = _to_float(impact_row.get("untraded_death_rate"), 0.0)
+    trade_kills = int(_to_float(impact_row.get("trade_kills"), 0.0))
+    deaths_with_0_damage = int(_to_float(impact_row.get("deaths_with_0_damage"), 0.0))
+    deaths_under_40_damage = int(_to_float(impact_row.get("deaths_under_40_damage"), 0.0))
+    early_deaths = int(_to_float(impact_row.get("early_deaths"), 0.0))
+
+    tips: list[dict[str, Any]] = []
+
+    if deaths >= 5 and untraded_death_rate >= 60.0:
+        severity = "critical" if untraded_death_rate >= 75.0 else "warning"
+        tips.append(
+            _tip(
+                category="positioning",
+                severity=severity,
+                title="Too many untraded deaths",
+                message=(
+                    f"{untraded_deaths}/{deaths} deaths were untraded ({untraded_death_rate:.1f}%). "
+                    "You often die outside trade range or take isolated duels. Play tighter off teammates and avoid solo repeeks without support."
+                ),
+                metric="untraded_death_rate",
+                value=untraded_death_rate,
+                percentile=None,
+                benchmark=60.0,
+                context="timeline",
+            )
+        )
+
+    if deaths_with_0_damage >= 3:
+        tips.append(
+            _tip(
+                category="impact",
+                severity="critical",
+                title="Too many zero-impact deaths",
+                message=(
+                    f"{deaths_with_0_damage} deaths came with zero damage dealt before dying. "
+                    "Take first contact with utility or teammate timing so you can create impact before going down."
+                ),
+                metric="deaths_with_0_damage",
+                value=float(deaths_with_0_damage),
+                percentile=None,
+                benchmark=3.0,
+                context="timeline",
+            )
+        )
+    elif deaths_under_40_damage >= 4:
+        tips.append(
+            _tip(
+                category="impact",
+                severity="warning",
+                title="Too many low-impact deaths",
+                message=(
+                    f"{deaths_under_40_damage} deaths had under 40 damage before death. "
+                    "You frequently die before creating useful impact; prioritize safer first bullets and disengage paths."
+                ),
+                metric="deaths_under_40_damage",
+                value=float(deaths_under_40_damage),
+                percentile=None,
+                benchmark=4.0,
+                context="timeline",
+            )
+        )
+
+    if early_deaths >= 4:
+        tips.append(
+            _tip(
+                category="game_sense",
+                severity="warning",
+                title="Too many early deaths",
+                message=(
+                    f"{early_deaths} early deaths are putting your team into early round disadvantage. "
+                    "Slow down early map fights and wait for utility/timing support."
+                ),
+                metric="early_deaths",
+                value=float(early_deaths),
+                percentile=None,
+                benchmark=4.0,
+                context="timeline",
+            )
+        )
+
+    if opening_duels >= 4 and opening_duel_win_pct < 40.0:
+        severity = "critical" if opening_duel_win_pct < 30.0 else "warning"
+        tips.append(
+            _tip(
+                category="entry",
+                severity=severity,
+                title="Poor opening duel conversion",
+                message=(
+                    f"Opening duels won: {opening_kills}/{opening_duels} ({opening_duel_win_pct:.1f}%). "
+                    "First-contact conversion is below target; use flash/swing timing and take fewer raw openers."
+                ),
+                metric="opening_duel_win_pct",
+                value=opening_duel_win_pct,
+                percentile=None,
+                benchmark=40.0,
+                context="timeline",
+            )
+        )
+
+    if trade_kills >= 4:
+        tips.append(
+            _tip(
+                category="teamplay",
+                severity="good",
+                title="Strong trade conversion",
+                message=f"You converted {trade_kills} trade kills. Keep this spacing discipline to stabilize difficult rounds.",
+                metric="trade_kills",
+                value=float(trade_kills),
+                percentile=None,
+                benchmark=4.0,
+                context="timeline",
+            )
+        )
+
+    return tips
+
+
 def generate_feedback(stats: dict[str, Any]) -> list[dict[str, Any]]:
     benchmark_evals = stats.get("benchmark_evaluations") or {}
     if not isinstance(benchmark_evals, dict):
@@ -150,7 +289,39 @@ def generate_feedback(stats: dict[str, Any]) -> list[dict[str, Any]]:
     )
     positive = sorted(positive, key=lambda t: float(t.get("percentile", 0.0)), reverse=True)
 
-    # Keep output focused: all negatives first, then at most one rare positive highlight.
-    if positive:
-        return critical_warning + positive[:1]
-    return critical_warning
+    impact = _impact_tips(stats)
+    impact_negative = [t for t in impact if t.get("severity") in {"critical", "warning"}]
+    impact_positive = [t for t in impact if t.get("severity") == "good"]
+
+    combined_negative = critical_warning + impact_negative
+    combined_negative = sorted(
+        combined_negative,
+        key=lambda t: (0 if t["severity"] == "critical" else 1),
+    )
+
+    # Avoid noisy duplicates for the same metric.
+    seen_metrics: set[str] = set()
+    deduped_negative: list[dict[str, Any]] = []
+    for tip in combined_negative:
+        metric = str(tip.get("metric", ""))
+        if metric in seen_metrics:
+            continue
+        seen_metrics.add(metric)
+        deduped_negative.append(tip)
+
+    positive_all = positive + impact_positive
+    deduped_positive: list[dict[str, Any]] = []
+    for tip in positive_all:
+        metric = str(tip.get("metric", ""))
+        if metric in seen_metrics:
+            continue
+        deduped_positive.append(tip)
+        seen_metrics.add(metric)
+
+    max_tips = 6
+    result = deduped_negative[:max_tips]
+    remaining = max_tips - len(result)
+    if remaining > 0 and deduped_positive:
+        # Keep positives rare and focused.
+        result.extend(deduped_positive[:1])
+    return result

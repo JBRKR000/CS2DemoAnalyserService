@@ -19,6 +19,7 @@ from sectors.clutch import build_clutch_stats
 from sectors.economy import build_economy_stats
 from sectors.feedback import generate_feedback
 from sectors.overall import build_overall_table, select_player, selected_player_overall_stats
+from sectors.round_timeline import build_round_timeline_stats
 
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,20 @@ def _summary_row_for_player(summary_df: pl.DataFrame, steamid: int | None) -> di
     if row.is_empty():
         return {}
     return row.to_dicts()[0]
+
+
+def _selected_impact_rows(impact_df: pl.DataFrame, steamid: int | None) -> dict[str, dict[str, Any]]:
+    if impact_df.is_empty() or steamid is None or "steamid" not in impact_df.columns or "side" not in impact_df.columns:
+        return {}
+    rows = impact_df.filter(pl.col("steamid") == steamid)
+    if rows.is_empty():
+        return {}
+    by_side: dict[str, dict[str, Any]] = {}
+    for row in rows.to_dicts():
+        side = str(row.get("side", "")).upper()
+        if side:
+            by_side[side] = row
+    return by_side
 
 
 def _round_counts_by_side(ticks: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -431,6 +446,7 @@ def analyse_demo(demo, player_selector: str | int | None = None, match_id: str |
 
     economy_stats = build_economy_stats(demo)
     clutch_stats = build_clutch_stats(demo)
+    round_timeline_stats = build_round_timeline_stats(demo)
 
     economy_summary_row = _summary_row_for_player(
         economy_stats.get("economy_summary", pl.DataFrame()),
@@ -540,12 +556,19 @@ def analyse_demo(demo, player_selector: str | int | None = None, match_id: str |
             },
         )
 
+    selected_impact = _selected_impact_rows(
+        round_timeline_stats.get("player_impact_summary", pl.DataFrame()),
+        selected_steamid,
+    )
+
     feedback = generate_feedback(
         {
             "overall_stats": selected_player_stats,
             "economy_summary": economy_summary_row,
             "clutch_summary": clutch_summary_row,
             "benchmark_evaluations": benchmark_evaluations,
+            "impact_summary": selected_impact,
+            "selected_player_impact": selected_impact.get("ALL", {}),
         }
     )
 
@@ -560,6 +583,7 @@ def analyse_demo(demo, player_selector: str | int | None = None, match_id: str |
         "selected_player_stats": selected_player_stats,
         "economy_stats": economy_stats,
         "clutch_stats": clutch_stats,
+        "round_timeline": round_timeline_stats,
         "economy_summary_selected": economy_summary_row,
         "clutch_summary_selected": clutch_summary_row,
         "benchmark_evaluations": benchmark_evaluations,
