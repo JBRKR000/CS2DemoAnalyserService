@@ -6,6 +6,7 @@ import colorlog
 from Analyser import load_demo_for_analysis, analyse_demo
 from benchmarks import MIN_BENCHMARK_POOL_SIZE
 from Parser import compute_file_sha256, get_demo
+from report_builder import build_match_report, format_report_text
 
 
 def configure_logging(level: int = logging.INFO) -> None:
@@ -157,6 +158,7 @@ def main() -> None:
     if match_id is None:
         logger.info("No source .dem file available; benchmark append will be skipped for this analysis.")
     analysis = analyse_demo(demo_for_analysis, match_id=match_id)
+    analysis["match_id"] = match_id
 
     player = analysis.get("selected_player_stats", {}) or {}
     econ = analysis.get("economy_summary_selected", {}) or {}
@@ -203,6 +205,9 @@ def main() -> None:
             tip.get("metric", ""),
             tip.get("value", ""),
         )
+
+    report = build_match_report(analysis)
+    logger.info("\n%s", format_report_text(report))
 
 
 if __name__ == "__main__":

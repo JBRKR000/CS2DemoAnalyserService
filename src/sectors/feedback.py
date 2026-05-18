@@ -143,15 +143,22 @@ def _impact_tips(stats: dict[str, Any]) -> list[dict[str, Any]]:
         )
 
     if deaths_with_0_damage >= 3:
+        zero_impact_message = (
+            f"{deaths_with_0_damage} deaths came with zero damage dealt before dying. "
+            "Take first contact with utility or teammate timing so you can create impact before going down."
+        )
+        if deaths_under_40_damage >= 4:
+            zero_impact_message = (
+                f"{deaths_with_0_damage} deaths came with zero damage, and "
+                f"{deaths_under_40_damage} deaths were under 40 damage before dying. "
+                "Take first contact with utility or teammate timing so you can create impact before going down."
+            )
         tips.append(
             _tip(
                 category="impact",
                 severity="critical",
                 title="Too many zero-impact deaths",
-                message=(
-                    f"{deaths_with_0_damage} deaths came with zero damage dealt before dying. "
-                    "Take first contact with utility or teammate timing so you can create impact before going down."
-                ),
+                message=zero_impact_message,
                 metric="deaths_with_0_damage",
                 value=float(deaths_with_0_damage),
                 percentile=None,
@@ -214,13 +221,29 @@ def _impact_tips(stats: dict[str, Any]) -> list[dict[str, Any]]:
             )
         )
 
-    if trade_kills >= 4:
+    if trade_kills >= 4 and untraded_death_rate < 75.0:
         tips.append(
             _tip(
                 category="teamplay",
                 severity="good",
                 title="Strong trade conversion",
                 message=f"You converted {trade_kills} trade kills. Keep this spacing discipline to stabilize difficult rounds.",
+                metric="trade_kills",
+                value=float(trade_kills),
+                percentile=None,
+                benchmark=4.0,
+                context="timeline",
+            )
+        )
+    elif trade_kills >= 4 and untraded_death_rate >= 75.0:
+        tips.append(
+            _tip(
+                category="teamplay",
+                severity="warning",
+                title="Trade conversion is situational",
+                message=(
+                    "You convert trades well when near teammates, but your own deaths are often isolated."
+                ),
                 metric="trade_kills",
                 value=float(trade_kills),
                 percentile=None,
@@ -235,7 +258,7 @@ def _impact_tips(stats: dict[str, Any]) -> list[dict[str, Any]]:
 def generate_feedback(stats: dict[str, Any]) -> list[dict[str, Any]]:
     benchmark_evals = stats.get("benchmark_evaluations") or {}
     if not isinstance(benchmark_evals, dict):
-        return []
+        benchmark_evals = {}
 
     critical_warning: list[dict[str, Any]] = []
     positive: list[dict[str, Any]] = []

@@ -599,6 +599,8 @@ def analyse_demo(demo, player_selector: str | int | None = None, match_id: str |
             "CT": benchmark_evaluations_ct,
             "T": benchmark_evaluations_t,
         },
+        "selected_player_impact": selected_impact.get("ALL", {}),
+        "selected_player_impact_by_side": selected_impact,
         "feedback": feedback,
     }
 
