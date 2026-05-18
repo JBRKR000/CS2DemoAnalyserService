@@ -72,6 +72,9 @@ def build_match_report(analysis: dict[str, Any]) -> dict[str, Any]:
 
     feedback_raw = safe_analysis.get("feedback")
     feedback = feedback_raw if isinstance(feedback_raw, list) else []
+    selected_impact_by_side = _safe_dict(safe_analysis.get("selected_player_impact_by_side"))
+    selected_impact_ct = _safe_dict(selected_impact_by_side.get("CT"))
+    selected_impact_t = _safe_dict(selected_impact_by_side.get("T"))
 
     report = {
         "match": {
@@ -114,6 +117,16 @@ def build_match_report(analysis: dict[str, Any]) -> dict[str, Any]:
             "early_deaths": selected_impact_all.get("early_deaths"),
             "mid_deaths": selected_impact_all.get("mid_deaths"),
             "late_deaths": selected_impact_all.get("late_deaths"),
+        },
+        "side_breakdown": {
+            "CT": {
+                "impact": selected_impact_ct,
+                "benchmarks": benchmark_ct,
+            },
+            "T": {
+                "impact": selected_impact_t,
+                "benchmarks": benchmark_t,
+            },
         },
         "economy": {
             "full_buy_win_rate": economy_summary.get("full_buy_win_rate"),
@@ -158,6 +171,11 @@ def format_report_text(report: dict[str, Any]) -> str:
     impact = _safe_dict(safe_report.get("impact"))
     economy = _safe_dict(safe_report.get("economy"))
     clutch = _safe_dict(safe_report.get("clutch"))
+    side_breakdown = _safe_dict(safe_report.get("side_breakdown"))
+    ct_side = _safe_dict(side_breakdown.get("CT"))
+    t_side = _safe_dict(side_breakdown.get("T"))
+    ct_impact = _safe_dict(ct_side.get("impact"))
+    t_impact = _safe_dict(t_side.get("impact"))
     benchmarks = _safe_dict(safe_report.get("benchmarks"))
     feedback_raw = safe_report.get("feedback")
     feedback = feedback_raw if isinstance(feedback_raw, list) else []
@@ -205,6 +223,30 @@ def format_report_text(report: dict[str, Any]) -> str:
         f"{_format_number(impact.get('mid_deaths'), digits=0)} / "
         f"{_format_number(impact.get('late_deaths'), digits=0)}"
     )
+    lines.append("")
+
+    lines.append("SIDE BREAKDOWN")
+    lines.append("CT:")
+    lines.append(
+        "- Untraded deaths: "
+        f"{_format_number(ct_impact.get('untraded_deaths'), digits=0)}/"
+        f"{_format_number(ct_impact.get('deaths'), digits=0)} "
+        f"({_format_pct(ct_impact.get('untraded_death_rate'))})"
+    )
+    lines.append(f"- Opening duel win: {_format_pct(ct_impact.get('opening_duel_win_pct'))}")
+    lines.append(f"- Trade kills: {_format_number(ct_impact.get('trade_kills'), digits=0)}")
+    lines.append(f"- Early deaths: {_format_number(ct_impact.get('early_deaths'), digits=0)}")
+    lines.append("")
+    lines.append("T:")
+    lines.append(
+        "- Untraded deaths: "
+        f"{_format_number(t_impact.get('untraded_deaths'), digits=0)}/"
+        f"{_format_number(t_impact.get('deaths'), digits=0)} "
+        f"({_format_pct(t_impact.get('untraded_death_rate'))})"
+    )
+    lines.append(f"- Opening duel win: {_format_pct(t_impact.get('opening_duel_win_pct'))}")
+    lines.append(f"- Trade kills: {_format_number(t_impact.get('trade_kills'), digits=0)}")
+    lines.append(f"- Early deaths: {_format_number(t_impact.get('early_deaths'), digits=0)}")
     lines.append("")
 
     lines.append("ECONOMY")
