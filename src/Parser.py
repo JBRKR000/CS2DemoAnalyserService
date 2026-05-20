@@ -136,11 +136,18 @@ def _pickleable_state(demo: Demo) -> dict[str, Any]:
     return state
 
 
-def _save_cache(cache_path: Path, cache_key: str, state: dict[str, Any], source_name: str | None) -> None:
+def _save_cache(
+    cache_path: Path,
+    cache_key: str,
+    state: dict[str, Any],
+    source_name: str | None,
+    metadata: dict[str, Any] | None = None,
+) -> None:
     payload = {
         "cache_key": cache_key,
         "source_name": source_name,
         "state": state,
+        "metadata": metadata or {},
     }
     with cache_path.open("wb") as file_handle:
         pickle.dump(payload, file_handle, protocol=pickle.HIGHEST_PROTOCOL)
@@ -151,24 +158,67 @@ def _load_cache(cache_path: Path) -> dict[str, Any]:
         payload = pickle.load(file_handle)
     if not isinstance(payload, dict) or "state" not in payload:
         raise ValueError("Invalid cache format.")
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, dict):
+        payload["metadata"] = {}
     return payload
 
 
-def _to_cached_demo(state: dict[str, Any]) -> SimpleNamespace:
-    return SimpleNamespace(**state)
+def _to_cached_demo(state: dict[str, Any], metadata: dict[str, Any] | None = None) -> SimpleNamespace:
+    demo_state = dict(state)
+    demo_state["cache_metadata"] = dict(metadata or {})
+    return SimpleNamespace(**demo_state)
 
 
-def _parse_state_from_path(demo_path: Path) -> dict[str, Any]:
+def _parse_state_from_path(demo_path: Path, show_progress: bool = True) -> dict[str, Any]:
     demo = Demo(demo_path)
-    progress = _ParseProgress()
-    progress.start()
+    progress = _ParseProgress() if show_progress else None
+    if progress is not None:
+        progress.start()
     try:
         demo.parse(player_props=_REQUESTED_PLAYER_PROPS)
     except Exception:
-        progress.finish(success=False)
+        if progress is not None:
+            progress.finish(success=False)
         raise
-    progress.finish(success=True)
+    if progress is not None:
+        progress.finish(success=True)
     return _pickleable_state(demo)
+
+
+def cache_path_for_key(cache_key: str, cache_dir: str | Path | None = None) -> Path:
+    resolved_cache_dir = Path(cache_dir) if cache_dir is not None else Path(".cache")
+    return _cache_path(resolved_cache_dir, cache_key)
+
+
+def is_demo_cached(cache_key: str, cache_dir: str | Path | None = None) -> bool:
+    return cache_path_for_key(cache_key, cache_dir=cache_dir).exists()
+
+
+def load_cache_metadata(cache_key: str, cache_dir: str | Path | None = None) -> dict[str, Any]:
+    cache_path = cache_path_for_key(cache_key, cache_dir=cache_dir)
+    payload = _load_cache(cache_path)
+    return dict(payload.get("metadata", {}))
+
+
+def update_cache_metadata(
+    cache_key: str,
+    cache_dir: str | Path | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    cache_path = cache_path_for_key(cache_key, cache_dir=cache_dir)
+    payload = _load_cache(cache_path)
+    merged_metadata = dict(payload.get("metadata", {}))
+    if metadata:
+        merged_metadata.update(metadata)
+    _save_cache(
+        cache_path,
+        str(payload.get("cache_key", cache_key)),
+        payload["state"],
+        payload.get("source_name"),
+        metadata=merged_metadata,
+    )
+    return merged_metadata
 
 
 def get_demo(
@@ -178,6 +228,8 @@ def get_demo(
     delete_source: bool = False,
     force_reparse: bool = False,
     return_cache_key: bool = False,
+    show_progress: bool = True,
+    cache_metadata: dict[str, Any] | None = None,
 ):
     cache_directory = Path(cache_dir)
     cache_directory.mkdir(parents=True, exist_ok=True)
@@ -194,6 +246,7 @@ def get_demo(
     if path_to_cache.exists() and not force_reparse:
         payload = _load_cache(path_to_cache)
         state = payload["state"]
+        metadata = payload.get("metadata", {})
 
         # Invalidate stale cache that is missing kills/damages (parsed before
         # the cached-property fix). Force a re-parse automatically.
@@ -213,22 +266,25 @@ def get_demo(
                     "Stale cache detected but demo file is missing — cannot re-parse."
                 )
         else:
+            if cache_metadata:
+                metadata = update_cache_metadata(cache_key, cache_dir=cache_directory, metadata=cache_metadata)
             if delete_source and source_path is not None and source_path.exists():
                 source_path.unlink(missing_ok=True)
-            demo_obj = _to_cached_demo(state)
+            demo_obj = _to_cached_demo(state, metadata=metadata)
             logger.info("Loaded parsed demo from cache.")
             return (demo_obj, cache_key) if return_cache_key else demo_obj
 
     if source_path is None or not source_path.exists():
         raise FileNotFoundError("Demo file does not exist and cache is missing.")
 
-    state = _parse_state_from_path(source_path)
-    _save_cache(path_to_cache, cache_key, state, source_path.name)
+    state = _parse_state_from_path(source_path, show_progress=show_progress)
+    metadata = dict(cache_metadata or {})
+    _save_cache(path_to_cache, cache_key, state, source_path.name, metadata=metadata)
 
     if delete_source:
         source_path.unlink(missing_ok=True)
 
-    demo_obj = _to_cached_demo(state)
+    demo_obj = _to_cached_demo(state, metadata=metadata)
     logger.info("Parsed demo and saved cache.")
     return (demo_obj, cache_key) if return_cache_key else demo_obj
 
@@ -237,8 +293,68 @@ def load_cached_demo(cache_key: str, cache_dir: str = ".cache", return_cache_key
     cache_directory = Path(cache_dir)
     path_to_cache = _cache_path(cache_directory, cache_key)
     payload = _load_cache(path_to_cache)
-    demo_obj = _to_cached_demo(payload["state"])
+    demo_obj = _to_cached_demo(payload["state"], metadata=payload.get("metadata", {}))
     return (demo_obj, cache_key) if return_cache_key else demo_obj
+
+
+def parse_demo_to_cache(
+    demo_path: str | Path,
+    force: bool = False,
+    cache_dir: str | Path | None = None,
+    label: str | None = None,
+) -> dict[str, Any]:
+    source_path = Path(demo_path)
+    started_at = time.perf_counter()
+    match_id: str | None = None
+
+    try:
+        match_id = compute_file_sha256(source_path)
+        resolved_cache_dir = Path(cache_dir) if cache_dir is not None else Path(".cache")
+        cache_path = cache_path_for_key(match_id, cache_dir=resolved_cache_dir)
+        metadata = {"label": label} if label else None
+
+        if cache_path.exists() and not force:
+            if metadata:
+                update_cache_metadata(match_id, cache_dir=resolved_cache_dir, metadata=metadata)
+            return {
+                "demo_path": str(source_path),
+                "match_id": match_id,
+                "status": "skipped",
+                "cache_path": str(cache_path),
+                "error": None,
+                "label": label,
+                "elapsed_seconds": time.perf_counter() - started_at,
+            }
+
+        get_demo(
+            demo_path=source_path,
+            cache_key=match_id,
+            cache_dir=str(resolved_cache_dir),
+            force_reparse=force,
+            return_cache_key=False,
+            show_progress=False,
+            cache_metadata=metadata,
+        )
+        return {
+            "demo_path": str(source_path),
+            "match_id": match_id,
+            "status": "parsed",
+            "cache_path": str(cache_path),
+            "error": None,
+            "label": label,
+            "elapsed_seconds": time.perf_counter() - started_at,
+        }
+    except Exception as exc:
+        cache_path = cache_path_for_key(match_id, cache_dir=cache_dir) if match_id is not None else None
+        return {
+            "demo_path": str(source_path),
+            "match_id": match_id,
+            "status": "failed",
+            "cache_path": str(cache_path) if cache_path is not None else None,
+            "error": str(exc),
+            "label": label,
+            "elapsed_seconds": time.perf_counter() - started_at,
+        }
 
 
 def cache_demo_from_bytes(
@@ -247,6 +363,8 @@ def cache_demo_from_bytes(
     cache_dir: str = ".cache",
     force_reparse: bool = False,
     return_cache_key: bool = False,
+    show_progress: bool = True,
+    cache_metadata: dict[str, Any] | None = None,
 ):
     if cache_key is None:
         cache_key = _hash_bytes(demo_bytes)
@@ -269,7 +387,7 @@ def cache_demo_from_bytes(
                 "Cache is stale (missing kills/damages or economy tick props). Re-parsing demo."
             )
         else:
-            demo_obj = _to_cached_demo(state)
+            demo_obj = _to_cached_demo(state, metadata=payload.get("metadata", {}))
             logger.info("Loaded parsed demo from cache.")
             return (demo_obj, cache_key) if return_cache_key else demo_obj
 
@@ -279,9 +397,10 @@ def cache_demo_from_bytes(
             tmp.write(demo_bytes)
             tmp_path = Path(tmp.name)
 
-        state = _parse_state_from_path(tmp_path)
-        _save_cache(path_to_cache, cache_key, state, source_name=None)
-        demo_obj = _to_cached_demo(state)
+        state = _parse_state_from_path(tmp_path, show_progress=show_progress)
+        metadata = dict(cache_metadata or {})
+        _save_cache(path_to_cache, cache_key, state, source_name=None, metadata=metadata)
+        demo_obj = _to_cached_demo(state, metadata=metadata)
         logger.info("Parsed demo and saved cache.")
         return (demo_obj, cache_key) if return_cache_key else demo_obj
     finally:
