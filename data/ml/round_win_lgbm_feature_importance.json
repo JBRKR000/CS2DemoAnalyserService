@@ -1,0 +1,44 @@
+{
+  "feature_importance": [
+    {
+      "feature": "alive_enemy",
+      "gain_importance": 25992.68722343445,
+      "split_importance": 439
+    },
+    {
+      "feature": "alive_team",
+      "gain_importance": 24263.83753299713,
+      "split_importance": 425
+    },
+    {
+      "feature": "seconds_remaining",
+      "gain_importance": 9283.260487556458,
+      "split_importance": 680
+    },
+    {
+      "feature": "opening_kill_for_team",
+      "gain_importance": 8735.195198059082,
+      "split_importance": 83
+    },
+    {
+      "feature": "side",
+      "gain_importance": 3495.3506333827972,
+      "split_importance": 249
+    },
+    {
+      "feature": "map_name",
+      "gain_importance": 1993.0557837486267,
+      "split_importance": 206
+    },
+    {
+      "feature": "bomb_planted",
+      "gain_importance": 1838.4157441854477,
+      "split_importance": 106
+    },
+    {
+      "feature": "snapshot_type",
+      "gain_importance": 6.9821999073028564,
+      "split_importance": 2
+    }
+  ]
+}

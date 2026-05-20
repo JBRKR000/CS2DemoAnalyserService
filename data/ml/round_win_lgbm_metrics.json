@@ -1,0 +1,180 @@
+{
+  "categorical_columns": [
+    "side",
+    "snapshot_type",
+    "map_name"
+  ],
+  "dataset_path": "E:\\VISUAL_STUDIO_PROJECTS\\CS2DemoAnalyserService\\data\\ml\\round_snapshots.parquet",
+  "feature_columns": [
+    "alive_team",
+    "alive_enemy",
+    "seconds_remaining",
+    "bomb_planted",
+    "opening_kill_for_team",
+    "side",
+    "snapshot_type",
+    "map_name"
+  ],
+  "feature_importance_path": "E:\\VISUAL_STUDIO_PROJECTS\\CS2DemoAnalyserService\\data\\ml\\round_win_lgbm_feature_importance.json",
+  "model_path": "E:\\VISUAL_STUDIO_PROJECTS\\CS2DemoAnalyserService\\models\\round_win_lgbm.txt",
+  "notes": [
+    "Model selection is based on validation log_loss.",
+    "Log loss and calibration matter more than raw accuracy for win probability deltas.",
+    "Test split is evaluated exactly once after training on train+validation matches."
+  ],
+  "search": {
+    "best_params": {
+      "bagging_fraction": 0.9,
+      "bagging_freq": 1,
+      "bagging_seed": 777,
+      "boosting_type": "gbdt",
+      "data_random_seed": 777,
+      "feature_fraction": 0.9,
+      "feature_fraction_seed": 777,
+      "lambda_l2": 1.0,
+      "learning_rate": 0.05,
+      "metric": "binary_logloss",
+      "min_data_in_leaf": 50,
+      "min_gain_to_split": 0.0,
+      "num_leaves": 31,
+      "num_threads": 0,
+      "objective": "binary",
+      "seed": 777,
+      "verbosity": -1
+    },
+    "best_trial": null,
+    "best_validation_log_loss": null,
+    "best_validation_roc_auc": null,
+    "n_estimators": 1000,
+    "n_trials": 0,
+    "sample_frac": 1.0,
+    "search_history": [],
+    "selected_params": {
+      "bagging_fraction": 0.9,
+      "bagging_freq": 1,
+      "bagging_seed": 777,
+      "boosting_type": "gbdt",
+      "data_random_seed": 777,
+      "feature_fraction": 0.9,
+      "feature_fraction_seed": 777,
+      "lambda_l2": 1.0,
+      "learning_rate": 0.05,
+      "metric": "binary_logloss",
+      "min_data_in_leaf": 50,
+      "min_gain_to_split": 0.0,
+      "num_leaves": 31,
+      "num_threads": 0,
+      "objective": "binary",
+      "seed": 777,
+      "verbosity": -1
+    },
+    "selection_metric": "validation_log_loss"
+  },
+  "seed": 777,
+  "split_summary": {
+    "test_match_count": 6,
+    "test_match_ids": [
+      "49b44f0ff3b936f5658095eaafb4792ecee0a3c999656f4634589fe0da69c389",
+      "85c73c1bb123f1525b2eaf7d7cece5c65439b26a6f9790d6c13ca695744861b8",
+      "5fc1499fb2fc912ba0c443fd061067d10e3d824af44af6f26ae491bda6a50c50",
+      "f3da7bd71d8a46332cf773d1d86c697ac7ad84b8633655a7918819b64137904c",
+      "fde72977efad534d545d6f2a71ba543f8a7316d6d9bf88cf7e48b3d13ab292df",
+      "6c55e361d78ebe79f658f260b885dd44b37508fa2ef8a6f1edb8883472436d12"
+    ],
+    "test_rows": 2576,
+    "train_match_count": 22,
+    "train_match_ids": [
+      "b2d05b5bcc4df21a987f4a3647e1d31db2e57d5170f10c16d06972016daa71d8",
+      "39d9a731944c674ae6fa0151442b7e5067bbc4ebe40421ce07e0255de4b4896b",
+      "6d08e4c3270034f3a4ad3f2d36560549ac600828820465e2ddbb791a9a4bbe9a",
+      "8f210cf118cbf36ccbeb7ea89241de495121264560ce7045cded08240dfdb8c5",
+      "aff88ca03fc3a57bf78736e7b14772d294ff4ee210d709b77885498f99892d1b",
+      "215d74d04a20de12ddde168e9835aa7c4869dde804e42481909b48b6397b6f9e",
+      "3fb0d842b367ef19c21be0fcfa88547db9e7d5e6e78c459b9c4addaaf00d4cc9",
+      "31f458730666bdaccd8bd1e36dd4bc57c8a25b708a25aa2a232f443697756006",
+      "b3501fa08fdf8b8000737715162434eb95464320e710a381e2e2c25241705822",
+      "88dbc98c7c36981aefedfd86800af965ba9f0e6552433dd4339a600d78f28622",
+      "1d31f16fe3c5baca0eb9295df90cbe9f946f1e32bdd97240b0e61f7431b20416",
+      "64ff3064600f883d1c651ddfeb31d4c46b3d5642b9fa2bb4388b21213bfeb4fe",
+      "34461e4186835f62e357692833fb2fc2454e85b329373ae2a3b6eb9ea14cc734",
+      "a26a8af9c5fd2859a23477f71edf7cfae4da601e309ea5c91faa72978db499e2",
+      "bd495ef3b1bfa5b12dcce8bb72476f3e299abac673710806f9bbb97bc2eb080b",
+      "76cd9cc0956f9cc8aa8b8b4f428c8be59e17474614fcfece1790f5bc4b352957",
+      "2f39382726a67e06b0e10f0e67810f1b96673920656b06bff8664dae83012632",
+      "4e635afcaa371bf747c63cec0032e6ec839cf650938030af4fbdfd9a852eccd0",
+      "63e25280c4c1f24292a3d98f79dffcf2cb433823b7d731a92ed06fb746383f77",
+      "aacbefb12bbe2a59b062127c3b518fd5f2742987e99cf2c0d827c8ae71f90772",
+      "88ace19cd76a380705f4398c7dcbda5107c86d84a02e8cd8acb4cd6480ad7c58",
+      "8d7e9f0e4c5c6ac29e5dcd4668512221668c92f19c9d288f38c3f73940b188aa"
+    ],
+    "train_rows": 11572,
+    "val_match_count": 4,
+    "val_match_ids": [
+      "cc1e441bcff01386ca844c5063fa0d32c8007e6394e5e44b9acebade4a0faee7",
+      "1e82f2fd8c5f9220e5e58ab096f0454a6ec1bd445cbd62b7aa0f0e5eeae8ade1",
+      "8057d13aeb4f66b2943d6b25bd10532ed954cbba8fc521ef57b24510f1d2a176",
+      "5d1daeba374c82ad965c08ee1c0391edb859608756b59a7aa393799e9cb712f8"
+    ],
+    "val_rows": 1876
+  },
+  "test": {
+    "accuracy_at_0_5": 0.8016304347826086,
+    "log_loss": 0.4322592509468041,
+    "roc_auc": 0.8800052925234366
+  },
+  "validation": {
+    "accuracy_at_0_5": 0.7510660980810234,
+    "log_loss": 0.4699586920989125,
+    "roc_auc": 0.8538098799332609,
+    "selected_n_estimators": 73,
+    "threshold_sweep": {
+      "best_accuracy": {
+        "accuracy": 0.753731343283582,
+        "f1": 0.7673716012084592,
+        "threshold": 0.4
+      },
+      "best_f1": {
+        "accuracy": 0.753731343283582,
+        "f1": 0.7673716012084592,
+        "threshold": 0.4
+      },
+      "thresholds": [
+        {
+          "accuracy": 0.7446695095948828,
+          "f1": 0.7662274280136652,
+          "threshold": 0.35
+        },
+        {
+          "accuracy": 0.753731343283582,
+          "f1": 0.7673716012084592,
+          "threshold": 0.4
+        },
+        {
+          "accuracy": 0.7468017057569296,
+          "f1": 0.7560349255264509,
+          "threshold": 0.45
+        },
+        {
+          "accuracy": 0.7510660980810234,
+          "f1": 0.7501337613697164,
+          "threshold": 0.5
+        },
+        {
+          "accuracy": 0.752132196162047,
+          "f1": 0.7429519071310117,
+          "threshold": 0.55
+        },
+        {
+          "accuracy": 0.7494669509594882,
+          "f1": 0.7329545454545453,
+          "threshold": 0.6
+        },
+        {
+          "accuracy": 0.7505330490405118,
+          "f1": 0.7214285714285714,
+          "threshold": 0.65
+        }
+      ]
+    }
+  }
+}
