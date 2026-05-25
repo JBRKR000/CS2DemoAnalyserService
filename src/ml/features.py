@@ -11,18 +11,30 @@ from coach_metrics import _kills_df, _safe_df
 LOGGER = logging.getLogger(__name__)
 MAX_PLAYERS_PER_SIDE = 5
 MAX_REASONABLE_ROUND_SECONDS = 120.0
+BOMB_TIMER_SECONDS = 40.0
 
 SNAPSHOT_COLUMNS = [
     "match_id",
     "map_name",
     "round_num",
+    "event_id",
     "tick",
     "snapshot_type",
     "side",
     "event_type",
+    "killer_steamid",
+    "victim_steamid",
+    "killer_name",
+    "victim_name",
+    "weapon",
+    "killer_side",
+    "victim_side",
+    "kill_context_type",
     "alive_team",
     "alive_enemy",
     "seconds_remaining",
+    "bomb_time_since_plant",
+    "bomb_time_remaining",
     "is_time_anomaly",
     "bomb_planted",
     "opening_kill_for_team",
@@ -33,13 +45,24 @@ SNAPSHOT_SCHEMA: dict[str, pl.DataType] = {
     "match_id": pl.Utf8,
     "map_name": pl.Utf8,
     "round_num": pl.Int64,
+    "event_id": pl.Utf8,
     "tick": pl.Int64,
     "snapshot_type": pl.Utf8,
     "side": pl.Utf8,
     "event_type": pl.Utf8,
+    "killer_steamid": pl.UInt64,
+    "victim_steamid": pl.UInt64,
+    "killer_name": pl.Utf8,
+    "victim_name": pl.Utf8,
+    "weapon": pl.Utf8,
+    "killer_side": pl.Utf8,
+    "victim_side": pl.Utf8,
+    "kill_context_type": pl.Utf8,
     "alive_team": pl.Int64,
     "alive_enemy": pl.Int64,
     "seconds_remaining": pl.Float64,
+    "bomb_time_since_plant": pl.Float64,
+    "bomb_time_remaining": pl.Float64,
     "is_time_anomaly": pl.Boolean,
     "bomb_planted": pl.Boolean,
     "opening_kill_for_team": pl.Boolean,
@@ -284,6 +307,63 @@ def _seconds_remaining_for_snapshot(
     return _clamp_seconds_remaining(raw_seconds_remaining), is_time_anomaly
 
 
+def _bomb_timer_context(
+    snapshot_tick: int,
+    plant_tick: int | None,
+    tickrate: float,
+) -> tuple[float, float]:
+    if plant_tick is None or snapshot_tick < plant_tick:
+        return 0.0, 0.0
+
+    bomb_time_since_plant = max(0.0, float(snapshot_tick - plant_tick) / tickrate)
+    bomb_time_remaining = max(0.0, BOMB_TIMER_SECONDS - bomb_time_since_plant)
+    return bomb_time_since_plant, bomb_time_remaining
+
+
+def _kill_context_select_columns(kills: pl.DataFrame) -> list[pl.Expr | str]:
+    columns: list[pl.Expr | str] = [
+        "round_num",
+        "tick",
+        "attacker_side",
+        "victim_side",
+        "victim_steamid",
+    ]
+    if "attacker_steamid" in kills.columns:
+        columns.append("attacker_steamid")
+    else:
+        columns.append(pl.lit(None, dtype=pl.UInt64).alias("attacker_steamid"))
+    if "attacker_name" in kills.columns:
+        columns.append("attacker_name")
+    else:
+        columns.append(pl.lit(None, dtype=pl.Utf8).alias("attacker_name"))
+    if "victim_name" in kills.columns:
+        columns.append("victim_name")
+    else:
+        columns.append(pl.lit(None, dtype=pl.Utf8).alias("victim_name"))
+    if "weapon" in kills.columns:
+        columns.append("weapon")
+    else:
+        columns.append(pl.lit(None, dtype=pl.Utf8).alias("weapon"))
+    return columns
+
+
+def _classify_kill_context_type(
+    killer_steamid: int | None,
+    victim_steamid: int | None,
+    weapon: str | None,
+    killer_side: str | None,
+    victim_side: str | None,
+) -> str:
+    normalized_weapon = (weapon or "").strip().lower()
+    if normalized_weapon == "world":
+        return "world_death"
+    if killer_steamid is not None and victim_steamid is not None and killer_steamid == victim_steamid:
+        return "self_kill"
+    if killer_side is not None and victim_side is not None and killer_side == victim_side:
+        return "teamkill"
+    return "normal_kill"
+
+
 def build_round_snapshot_rows(demo: Any, match_id: str) -> pl.DataFrame:
     kills = _kills_df(demo)
     rounds = _safe_df(getattr(demo, "rounds", None))
@@ -306,12 +386,15 @@ def build_round_snapshot_rows(demo: Any, match_id: str) -> pl.DataFrame:
     tickrate = _demo_tickrate(demo)
 
     kill_rows = (
-        kills.select(["round_num", "tick", "attacker_side", "victim_side", "victim_steamid"])
+        kills.select(_kill_context_select_columns(kills))
         .drop_nulls(["round_num", "tick", "attacker_side", "victim_side", "victim_steamid"])
         .with_columns(
             [
                 pl.col("attacker_side").map_elements(_normalize_side, return_dtype=pl.Utf8),
                 pl.col("victim_side").map_elements(_normalize_side, return_dtype=pl.Utf8),
+                pl.col("attacker_name").cast(pl.Utf8, strict=False),
+                pl.col("victim_name").cast(pl.Utf8, strict=False),
+                pl.col("weapon").cast(pl.Utf8, strict=False),
             ]
         )
         .drop_nulls(["attacker_side", "victim_side"])
@@ -325,13 +408,26 @@ def build_round_snapshot_rows(demo: Any, match_id: str) -> pl.DataFrame:
 
     rows: list[dict[str, Any]] = []
     alive_state: dict[int, dict[str, set[int]]] = {}
+    kill_index_by_round: dict[int, int] = {}
 
     for kill in kill_rows:
         round_num = int(kill["round_num"])
         kill_tick = int(kill["tick"])
         attacker_side = str(kill["attacker_side"])
         victim_side = str(kill["victim_side"])
+        attacker_steamid = kill.get("attacker_steamid")
         victim_steamid = int(kill["victim_steamid"])
+        attacker_name = kill.get("attacker_name")
+        victim_name = kill.get("victim_name")
+        weapon = kill.get("weapon")
+        normalized_attacker_steamid = int(attacker_steamid) if attacker_steamid is not None else None
+        kill_context_type = _classify_kill_context_type(
+            killer_steamid=normalized_attacker_steamid,
+            victim_steamid=victim_steamid,
+            weapon=str(weapon) if weapon is not None else None,
+            killer_side=attacker_side,
+            victim_side=victim_side,
+        )
         round_bounds = round_time_bounds.get(round_num, {})
         round_start = round_bounds.get("start")
         round_end = round_bounds.get("end")
@@ -375,6 +471,10 @@ def build_round_snapshot_rows(demo: Any, match_id: str) -> pl.DataFrame:
         after_ct = len(after_ct_players)
         after_t = len(after_t_players)
 
+        kill_index = kill_index_by_round.get(round_num, 0) + 1
+        kill_index_by_round[round_num] = kill_index
+        event_id = f"{match_id}:{round_num}:{kill_index}"
+
         opening_side = opening_side_by_round.get(round_num)
         plant_tick = plant_ticks.get(round_num)
         team_winner = winners.get(round_num)
@@ -391,6 +491,11 @@ def build_round_snapshot_rows(demo: Any, match_id: str) -> pl.DataFrame:
                 round_num=round_num,
                 tickrate=tickrate,
                 round_time_bounds=round_time_bounds,
+            )
+            bomb_time_since_plant, bomb_time_remaining = _bomb_timer_context(
+                snapshot_tick=snapshot_tick,
+                plant_tick=plant_tick,
+                tickrate=tickrate,
             )
 
             for side in ("CT", "T"):
@@ -414,13 +519,24 @@ def build_round_snapshot_rows(demo: Any, match_id: str) -> pl.DataFrame:
                         "match_id": match_id,
                         "map_name": map_name,
                         "round_num": round_num,
+                        "event_id": event_id,
                         "tick": snapshot_tick,
                         "snapshot_type": snapshot_type,
                         "side": side,
                         "event_type": "kill",
+                        "killer_steamid": normalized_attacker_steamid,
+                        "victim_steamid": victim_steamid,
+                        "killer_name": str(attacker_name) if attacker_name is not None else None,
+                        "victim_name": str(victim_name) if victim_name is not None else None,
+                        "weapon": str(weapon) if weapon is not None else None,
+                        "killer_side": attacker_side,
+                        "victim_side": victim_side,
+                        "kill_context_type": kill_context_type,
                         "alive_team": alive_team,
                         "alive_enemy": alive_enemy,
                         "seconds_remaining": seconds_remaining,
+                        "bomb_time_since_plant": bomb_time_since_plant,
+                        "bomb_time_remaining": bomb_time_remaining,
                         "is_time_anomaly": is_time_anomaly,
                         "bomb_planted": bomb_planted,
                         "opening_kill_for_team": opening_side == side,
