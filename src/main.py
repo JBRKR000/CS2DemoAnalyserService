@@ -115,6 +115,23 @@ def _pick_latest_cache_key() -> str | None:
     return cache_files[0].stem
 
 
+def _cache_exists(cache_key: str | None) -> bool:
+    if not cache_key:
+        return False
+    return (CACHE_DIR / f"{cache_key}.pkl").exists()
+
+
+def _pick_fallback_cache_key(reason: str) -> str:
+    cache_key = _pick_latest_cache_key()
+    if cache_key is None:
+        raise FileNotFoundError(
+            f"{reason} No source demo and no cache found. Put a .dem in Demos/ or create cache first."
+        )
+    CACHE_KEY_PATH.write_text(cache_key, encoding="utf-8")
+    logger.warning("%s Using latest cache key instead: %s", reason, cache_key)
+    return cache_key
+
+
 def main() -> None:
     cache_key: str | None = None
     match_id: str | None = None
@@ -135,19 +152,17 @@ def main() -> None:
         logger.info("Saved cache key to %s", CACHE_KEY_PATH)
     elif CACHE_KEY_PATH.exists():
         cache_key = CACHE_KEY_PATH.read_text(encoding="utf-8").strip()
+        if not _looks_like_sha256(cache_key):
+            cache_key = _pick_fallback_cache_key("last_cache_key.txt is empty or invalid.")
+        elif not _cache_exists(cache_key):
+            cache_key = _pick_fallback_cache_key(f"Cached demo is missing for key {cache_key}.")
         if _looks_like_sha256(cache_key):
             match_id = cache_key
         logger.info("Using cache key from %s", CACHE_KEY_PATH)
     else:
-        cache_key = _pick_latest_cache_key()
-        if cache_key is None:
-            raise FileNotFoundError(
-                "No source demo and no cache found. Put a .dem in Demos/ or create cache first."
-            )
-        CACHE_KEY_PATH.write_text(cache_key, encoding="utf-8")
+        cache_key = _pick_fallback_cache_key("last_cache_key.txt missing.")
         if _looks_like_sha256(cache_key):
             match_id = cache_key
-        logger.info("last_cache_key.txt missing, using latest cache key: %s", cache_key)
 
     demo_for_analysis = load_demo_for_analysis(
         str(CACHE_KEY_PATH),

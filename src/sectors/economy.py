@@ -326,6 +326,18 @@ def build_economy_stats(demo: Any) -> dict[str, pl.DataFrame]:
         if not frame.is_empty():
             summary = summary.join(frame, on="steamid", how="left")
 
+    for column in (
+        "full_buy_total",
+        "full_buy_wins",
+        "force_total",
+        "force_wins",
+        "eco_kills",
+        "broken_economy_rounds",
+        "save_rounds",
+    ):
+        if column not in summary.columns:
+            summary = summary.with_columns(pl.lit(0).alias(column))
+
     summary = summary.with_columns(
         [
             pl.col("full_buy_total").fill_null(0),

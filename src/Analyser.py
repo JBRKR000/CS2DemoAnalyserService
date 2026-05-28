@@ -19,10 +19,14 @@ from sectors.clutch import build_clutch_stats
 from sectors.economy import build_economy_stats
 from sectors.feedback import generate_feedback
 from sectors.overall import build_overall_table, select_player, selected_player_overall_stats
+from sectors.player_ml_impact import build_player_ml_impact_summary
 from sectors.round_timeline import build_round_timeline_stats
 
 
 logger = logging.getLogger(__name__)
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_ML_EVENT_IMPACT_PATH = REPO_ROOT / "data" / "ml" / "ml_event_impact.parquet"
+KAST_TRADE_WINDOW_TICKS = 640
 
 
 def load_demo_for_analysis(
@@ -79,6 +83,30 @@ def _selected_impact_rows(impact_df: pl.DataFrame, steamid: int | None) -> dict[
         if side:
             by_side[side] = row
     return by_side
+
+
+def _load_player_ml_impact_summary(
+    selected_steamid: int | str | None,
+    match_id: str | None = None,
+    impact_path: Path = DEFAULT_ML_EVENT_IMPACT_PATH,
+) -> dict[str, Any] | None:
+    if selected_steamid is None or not impact_path.exists():
+        return None
+
+    try:
+        impact = pl.read_parquet(impact_path)
+        if impact.is_empty():
+            return None
+        if match_id and "match_id" in impact.columns:
+            impact = impact.filter(pl.col("match_id").cast(pl.Utf8) == str(match_id))
+        return build_player_ml_impact_summary(
+            ml_event_impact=impact,
+            selected_steamid=selected_steamid,
+            top_n=5,
+        )
+    except Exception:
+        logger.exception("Failed to load player ML impact summary from %s", impact_path)
+        return None
 
 
 def _round_counts_by_side(ticks: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -300,6 +328,7 @@ def _kast_by_side(kills: pl.DataFrame, player_round_side: pl.DataFrame) -> pl.Da
     had_kill = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "round_num": pl.Int64, "had_kill": pl.Boolean})
     had_assist = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "round_num": pl.Int64, "had_assist": pl.Boolean})
     deaths = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "round_num": pl.Int64})
+    was_traded = pl.DataFrame(schema={"steamid": pl.UInt64, "side": pl.Utf8, "round_num": pl.Int64, "was_traded": pl.Boolean})
     if not kills.is_empty():
         if all(c in kills.columns for c in ["attacker_steamid", "attacker_side", "round_num"]):
             had_kill = (
@@ -330,9 +359,49 @@ def _kast_by_side(kills: pl.DataFrame, player_round_side: pl.DataFrame) -> pl.Da
                 .filter(pl.col("side").is_in(["CT", "T"]))
                 .unique()
             )
+        if all(c in kills.columns for c in ["tick", "round_num", "attacker_steamid", "attacker_side", "victim_steamid", "victim_side"]):
+            trades_kills = (
+                kills.select(
+                    [
+                        "tick",
+                        "round_num",
+                        "attacker_steamid",
+                        pl.col("attacker_side").cast(pl.Utf8).str.to_uppercase().alias("attacker_side"),
+                        "victim_steamid",
+                        pl.col("victim_side").cast(pl.Utf8).str.to_uppercase().alias("victim_side"),
+                    ]
+                )
+                .drop_nulls(["tick", "round_num", "attacker_steamid", "attacker_side", "victim_steamid", "victim_side"])
+                .filter(pl.col("attacker_side").is_in(["CT", "T"]) & pl.col("victim_side").is_in(["CT", "T"]))
+            )
+            prior = trades_kills.rename(
+                {
+                    "tick": "prior_tick",
+                    "attacker_steamid": "prior_killer",
+                    "attacker_side": "prior_killer_side",
+                    "victim_steamid": "prior_victim",
+                    "victim_side": "prior_victim_side",
+                }
+            )
+            was_traded = (
+                trades_kills.join(prior, on="round_num", how="inner")
+                .filter(pl.col("victim_steamid") == pl.col("prior_killer"))
+                .filter(pl.col("prior_tick") < pl.col("tick"))
+                .filter((pl.col("tick") - pl.col("prior_tick")) <= KAST_TRADE_WINDOW_TICKS)
+                .filter(pl.col("attacker_side") == pl.col("prior_victim_side"))
+                .select(
+                    [
+                        pl.col("prior_victim").alias("steamid"),
+                        pl.col("prior_victim_side").alias("side"),
+                        "round_num",
+                    ]
+                )
+                .unique()
+                .with_columns(pl.lit(True).alias("was_traded"))
+            )
     prs = player_round_side.select(["steamid", "side", "round_num"]).unique()
     kast_base = prs
-    for frame in (had_kill, had_assist):
+    for frame in (had_kill, had_assist, was_traded):
         if not frame.is_empty():
             kast_base = kast_base.join(frame, on=["steamid", "side", "round_num"], how="left")
     kast_base = kast_base.join(
@@ -344,11 +413,12 @@ def _kast_by_side(kills: pl.DataFrame, player_round_side: pl.DataFrame) -> pl.Da
         [
             pl.col("had_kill").fill_null(False),
             pl.col("had_assist").fill_null(False),
+            pl.col("was_traded").fill_null(False),
             pl.col("died").fill_null(False),
         ]
     ).with_columns((~pl.col("died")).alias("survived"))
     kast_base = kast_base.with_columns(
-        (pl.col("had_kill") | pl.col("had_assist") | pl.col("survived")).alias("kast_round")
+        (pl.col("had_kill") | pl.col("had_assist") | pl.col("survived") | pl.col("was_traded")).alias("kast_round")
     )
     return (
         kast_base.group_by(["steamid", "side"])
@@ -377,6 +447,28 @@ def _build_benchmark_player_rows(
     for frame in (kills_side, deaths_side, assists_side, hs_kills_side, opening_duels_side, opening_duels_won_side, dmg_side, econ_full, econ_force, clutch_side):
         if not frame.is_empty():
             base = base.join(frame, on=["steamid", "side"], how="left")
+
+    defaults = {
+        "kills": 0,
+        "deaths": 0,
+        "assists": 0,
+        "hs_kills": 0,
+        "opening_duels": 0,
+        "opening_duels_won": 0,
+        "total_damage": 0,
+        "full_buy_rounds": 0,
+        "full_buy_wins": 0,
+        "force_rounds": 0,
+        "force_wins": 0,
+        "clutch_attempts": 0,
+        "clutches_won": 0,
+        "full_buy_win_rate": 0.0,
+        "force_win_rate": 0.0,
+        "clutch_win_rate": 0.0,
+    }
+    for column, default in defaults.items():
+        if column not in base.columns:
+            base = base.with_columns(pl.lit(default).alias(column))
 
     base = base.with_columns(
         [
@@ -538,9 +630,77 @@ def analyse_demo(demo, player_selector: str | int | None = None, match_id: str |
             rounds_played=rounds,
         )
 
+    def _benchmark_eval_meta(evaluations: dict[str, Any], side: str) -> dict[str, Any]:
+        if not isinstance(evaluations, dict):
+            return {
+                "selected_context": None,
+                "map_name": map_name,
+                "side": side,
+                "evaluated_metrics_count": 0,
+                "metric_details": [],
+            }
+
+        metric_entries: list[dict[str, Any]] = [
+            item
+            for item in evaluations.values()
+            if isinstance(item, dict) and isinstance(item.get("metric"), str)
+        ]
+        metric_details: list[dict[str, Any]] = []
+        available_contexts: set[str] = set()
+        for entry in metric_entries:
+            metric = entry.get("metric")
+            context = entry.get("context")
+            sample_size = entry.get("sample_size") if isinstance(entry.get("sample_size"), (int, float)) else None
+            percentile = entry.get("percentile") if isinstance(entry.get("percentile"), (int, float)) else None
+            rating = entry.get("rating") if isinstance(entry.get("rating"), str) else "unknown"
+            reason = entry.get("reason") if isinstance(entry.get("reason"), str) else None
+
+            metric_details.append(
+                {
+                    "metric": metric,
+                    "context": context,
+                    "sample_size": int(sample_size) if sample_size is not None else None,
+                    "percentile": float(percentile) if percentile is not None else None,
+                    "rating": rating,
+                    "reason": reason,
+                }
+            )
+
+            if rating != "unknown" and reason is None and isinstance(context, str) and context:
+                available_contexts.add(context)
+
+        selected_context = None
+        if len(available_contexts) == 1:
+            selected_context = next(iter(available_contexts))
+        elif len(available_contexts) > 1:
+            selected_context = "mixed"
+
+        return {
+            "selected_context": selected_context,
+            "map_name": map_name,
+            "side": side,
+            "evaluated_metrics_count": len(metric_details),
+            "metric_details": metric_details,
+        }
+
     benchmark_evaluations_all = _evaluate_for_side("ALL")
     benchmark_evaluations_ct = _evaluate_for_side("CT")
     benchmark_evaluations_t = _evaluate_for_side("T")
+    selected_overall_kast = selected_player_stats.get("kast")
+    selected_benchmark_all_kast = None
+    selected_all_sample = _selected_match_sample("ALL")
+    if isinstance(selected_all_sample.get("metrics"), dict):
+        selected_benchmark_all_kast = selected_all_sample.get("metrics", {}).get("kast")
+    if isinstance(selected_overall_kast, (int, float)) and isinstance(selected_benchmark_all_kast, (int, float)):
+        logger.debug(
+            "KAST consistency check | overall=%0.2f | benchmark_all=%0.2f | abs_diff=%0.2f",
+            float(selected_overall_kast),
+            float(selected_benchmark_all_kast),
+            abs(float(selected_overall_kast) - float(selected_benchmark_all_kast)),
+        )
+    benchmark_evaluation_meta_all = _benchmark_eval_meta(benchmark_evaluations_all, "ALL")
+    benchmark_evaluation_meta_ct = _benchmark_eval_meta(benchmark_evaluations_ct, "CT")
+    benchmark_evaluation_meta_t = _benchmark_eval_meta(benchmark_evaluations_t, "T")
     benchmark_evaluations = benchmark_evaluations_all
     samples_appended = False
     all_samples = historical_samples
@@ -560,6 +720,7 @@ def analyse_demo(demo, player_selector: str | int | None = None, match_id: str |
         round_timeline_stats.get("player_impact_summary", pl.DataFrame()),
         selected_steamid,
     )
+    player_ml_impact = _load_player_ml_impact_summary(selected_steamid, match_id=match_id)
 
     feedback = generate_feedback(
         {
@@ -590,6 +751,10 @@ def analyse_demo(demo, player_selector: str | int | None = None, match_id: str |
         "benchmark_evaluations_all": benchmark_evaluations_all,
         "benchmark_evaluations_ct": benchmark_evaluations_ct,
         "benchmark_evaluations_t": benchmark_evaluations_t,
+        "benchmark_evaluation_meta": benchmark_evaluation_meta_all,
+        "benchmark_evaluation_meta_all": benchmark_evaluation_meta_all,
+        "benchmark_evaluation_meta_ct": benchmark_evaluation_meta_ct,
+        "benchmark_evaluation_meta_t": benchmark_evaluation_meta_t,
         "benchmark_pool_source": benchmark_pool_source,
         "benchmark_pool_size_before_append": len(historical_samples),
         "benchmark_pool_size_after_append": len(all_samples),
@@ -601,6 +766,7 @@ def analyse_demo(demo, player_selector: str | int | None = None, match_id: str |
         },
         "selected_player_impact": selected_impact.get("ALL", {}),
         "selected_player_impact_by_side": selected_impact,
+        "player_ml_impact": player_ml_impact,
         "feedback": feedback,
     }
 

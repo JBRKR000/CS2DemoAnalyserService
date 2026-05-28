@@ -24,6 +24,29 @@ def _format_pct(value: Any, digits: int = 2) -> str:
     return "-"
 
 
+def _format_impact_score(value: Any, digits: int = 3) -> str:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"{float(value):+.{digits}f} impact score"
+    return "-"
+
+
+def _format_pp_per_event(value: Any, digits: int = 2) -> str:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"{float(value) * 100.0:+.{digits}f} pp per event"
+    return "-"
+
+
+def _format_event_pp(value: Any, digits: int = 2) -> str:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"{float(value) * 100.0:+.{digits}f} pp"
+    return "-"
+
+
+def _safe_text(value: Any, fallback: str = "-") -> str:
+    text = str(value or "").strip()
+    return text if text else fallback
+
+
 def _benchmark_status(benchmarks: dict[str, Any]) -> str:
     eval_dicts: list[dict[str, Any]] = []
     for side_key in ("all", "ct", "t"):
@@ -48,6 +71,91 @@ def _benchmark_status(benchmarks: dict[str, Any]) -> str:
     return "unknown"
 
 
+def _benchmark_meta_from_evals(
+    evaluations: dict[str, Any],
+    map_name: Any,
+    side: str = "ALL",
+) -> dict[str, Any]:
+    metric_entries: list[dict[str, Any]] = [
+        item
+        for item in evaluations.values()
+        if isinstance(item, dict) and isinstance(item.get("metric"), str)
+    ]
+
+    metric_details: list[dict[str, Any]] = []
+    available_contexts: set[str] = set()
+    for entry in metric_entries:
+        metric = entry.get("metric")
+        context = entry.get("context")
+        sample_size = entry.get("sample_size")
+        percentile = entry.get("percentile")
+        rating = entry.get("rating") if isinstance(entry.get("rating"), str) else "unknown"
+        reason = entry.get("reason") if isinstance(entry.get("reason"), str) else None
+
+        metric_details.append(
+            {
+                "metric": metric,
+                "context": context,
+                "sample_size": int(sample_size) if isinstance(sample_size, (int, float)) else None,
+                "percentile": float(percentile) if isinstance(percentile, (int, float)) else None,
+                "rating": rating,
+                "reason": reason,
+            }
+        )
+
+        if rating != "unknown" and reason is None and isinstance(context, str) and context:
+            available_contexts.add(context)
+
+    selected_context = None
+    if len(available_contexts) == 1:
+        selected_context = next(iter(available_contexts))
+    elif len(available_contexts) > 1:
+        selected_context = "mixed"
+
+    return {
+        "selected_context": selected_context,
+        "map_name": map_name,
+        "side": side,
+        "evaluated_metrics_count": len(metric_details),
+        "metric_details": metric_details,
+    }
+
+
+def _format_excluded_contexts(excluded_context_counts: Any) -> str:
+    if not isinstance(excluded_context_counts, dict):
+        return "-"
+
+    teamkills = int(excluded_context_counts.get("teamkill") or 0)
+    world_deaths = int(excluded_context_counts.get("world_death") or 0)
+    other_contexts = [
+        f"{context}={int(count or 0)}"
+        for context, count in sorted(excluded_context_counts.items())
+        if context not in {"teamkill", "world_death"}
+    ]
+    contexts = [f"teamkill={teamkills}", f"world_death={world_deaths}", *other_contexts]
+    return ", ".join(contexts)
+
+
+def _format_ml_event(row: dict[str, Any]) -> str:
+    round_num = _format_number(row.get("round_num"), digits=0)
+    side = _safe_text(row.get("side"))
+    killer = _safe_text(row.get("killer_name"), "Unknown killer")
+    victim = _safe_text(row.get("victim_name"), "Unknown victim")
+    weapon = _safe_text(row.get("weapon"), "unknown weapon")
+    impact = _format_event_pp(row.get("win_prob_delta"))
+    return f"Round {round_num} | {side} | {killer} killed {victim} with {weapon} | {impact}"
+
+
+def _append_ml_event_list(lines: list[str], title: str, rows: Any) -> None:
+    lines.append(f"{title}:")
+    if not isinstance(rows, list) or not rows:
+        lines.append("- none")
+        return
+    for row in rows[:5]:
+        if isinstance(row, dict):
+            lines.append(f"- {_format_ml_event(row)}")
+
+
 def build_match_report(analysis: dict[str, Any]) -> dict[str, Any]:
     safe_analysis = _safe_dict(analysis)
 
@@ -69,9 +177,19 @@ def build_match_report(analysis: dict[str, Any]) -> dict[str, Any]:
     benchmark_t = _safe_dict(safe_analysis.get("benchmark_evaluations_t"))
     if not benchmark_all:
         benchmark_all = _safe_dict(safe_analysis.get("benchmark_evaluations"))
+    benchmark_meta = _safe_dict(safe_analysis.get("benchmark_evaluation_meta"))
+    if not benchmark_meta:
+        benchmark_meta = _safe_dict(safe_analysis.get("benchmark_evaluation_meta_all"))
+    if not benchmark_meta or not isinstance(benchmark_meta.get("metric_details"), list):
+        benchmark_meta = _benchmark_meta_from_evals(
+            benchmark_all,
+            map_name=safe_analysis.get("map_name"),
+            side="ALL",
+        )
 
     feedback_raw = safe_analysis.get("feedback")
     feedback = feedback_raw if isinstance(feedback_raw, list) else []
+    player_ml_impact = safe_analysis.get("player_ml_impact")
     selected_impact_by_side = _safe_dict(safe_analysis.get("selected_player_impact_by_side"))
     selected_impact_ct = _safe_dict(selected_impact_by_side.get("CT"))
     selected_impact_t = _safe_dict(selected_impact_by_side.get("T"))
@@ -151,6 +269,11 @@ def build_match_report(analysis: dict[str, Any]) -> dict[str, Any]:
             "all": benchmark_all,
             "ct": benchmark_ct,
             "t": benchmark_t,
+            "selected_context": benchmark_meta.get("selected_context"),
+            "map_name": benchmark_meta.get("map_name"),
+            "side": benchmark_meta.get("side"),
+            "evaluated_metrics_count": benchmark_meta.get("evaluated_metrics_count"),
+            "metric_details": benchmark_meta.get("metric_details"),
         },
         "feedback": feedback,
         "meta": {
@@ -158,6 +281,9 @@ def build_match_report(analysis: dict[str, Any]) -> dict[str, Any]:
             "report_version": 1,
         },
     }
+
+    if isinstance(player_ml_impact, dict):
+        report["ml_impact"] = player_ml_impact
 
     report["benchmarks"]["status"] = _benchmark_status(_safe_dict(report.get("benchmarks")))
     return report
@@ -179,6 +305,8 @@ def format_report_text(report: dict[str, Any]) -> str:
     benchmarks = _safe_dict(safe_report.get("benchmarks"))
     feedback_raw = safe_report.get("feedback")
     feedback = feedback_raw if isinstance(feedback_raw, list) else []
+    ml_impact_raw = safe_report.get("ml_impact")
+    ml_impact = ml_impact_raw if isinstance(ml_impact_raw, dict) else None
 
     lines: list[str] = []
     lines.append("CS2 COACH REPORT")
@@ -283,7 +411,65 @@ def format_report_text(report: dict[str, Any]) -> str:
 
     lines.append("BENCHMARKS")
     lines.append(f"Status: {benchmarks.get('status') if benchmarks.get('status') is not None else '-'}")
+    if str(benchmarks.get("status")) == "available":
+        context_used = benchmarks.get("selected_context")
+        evaluated_metrics_count = benchmarks.get("evaluated_metrics_count")
+        metric_details_raw = benchmarks.get("metric_details")
+        metric_details = metric_details_raw if isinstance(metric_details_raw, list) else []
+
+        lines.append(f"Context: {_safe_text(context_used)}")
+        if evaluated_metrics_count is not None:
+            lines.append(f"Metrics evaluated: {_format_number(evaluated_metrics_count, digits=0)}")
+
+        if metric_details:
+            lines.append("")
+            lines.append("Benchmark pools:")
+            for detail in metric_details:
+                if not isinstance(detail, dict):
+                    continue
+                metric = _safe_text(detail.get("metric"))
+                context = _safe_text(detail.get("context"))
+                sample_size = _format_number(detail.get("sample_size"), digits=0)
+                rating = str(detail.get("rating") or "unknown")
+                reason = detail.get("reason")
+                if rating != "unknown" and reason is None:
+                    lines.append(f"- {metric}: {context}, samples={sample_size}")
+                elif reason:
+                    lines.append(f"- {metric}: unavailable, reason={reason}")
     lines.append("")
+
+    if ml_impact is not None:
+        kill_count = int(ml_impact.get("kill_count") or 0)
+        death_count = int(ml_impact.get("death_count") or 0)
+        has_events = kill_count > 0 or death_count > 0
+
+        lines.append("ML IMPACT (EXPERIMENTAL)")
+        if not has_events:
+            lines.append("No normal-kill ML impact data found for this player.")
+            lines.append(
+                "Excluded contexts: "
+                f"{_format_excluded_contexts(ml_impact.get('excluded_context_counts'))}"
+            )
+            lines.append("")
+        else:
+            lines.append(f"Kills: {_format_number(kill_count, digits=0)}")
+            lines.append(f"Deaths: {_format_number(death_count, digits=0)}")
+            lines.append(f"Net impact score: {_format_impact_score(ml_impact.get('net_ml_impact'))}")
+            lines.append(f"Kill impact score: {_format_impact_score(ml_impact.get('total_kill_impact'))}")
+            lines.append(f"Death impact score: {_format_impact_score(ml_impact.get('total_death_impact'))}")
+            lines.append(f"Average kill impact: {_format_pp_per_event(ml_impact.get('avg_kill_impact'))}")
+            lines.append(f"Average death impact: {_format_pp_per_event(ml_impact.get('avg_death_impact'))}")
+            lines.append(
+                "Excluded contexts: "
+                f"{_format_excluded_contexts(ml_impact.get('excluded_context_counts'))}"
+            )
+            lines.append("")
+            _append_ml_event_list(lines, "Best kills", ml_impact.get("best_kills"))
+            lines.append("")
+            _append_ml_event_list(lines, "Worst deaths", ml_impact.get("worst_deaths"))
+            lines.append("")
+            _append_ml_event_list(lines, "Low-impact kills", ml_impact.get("low_impact_kills"))
+            lines.append("")
 
     lines.append("TOP TIPS")
     if feedback:
