@@ -119,6 +119,33 @@ def save_json_rows(path: Path, frame: pl.DataFrame) -> list[dict[str, Any]]:
     return rows
 
 
+def log_impact_sanity(impact: pl.DataFrame) -> None:
+    LOGGER.info("impact_rows=%s", impact.height)
+    if impact.is_empty():
+        raise SystemExit("Impact is empty: no paired before/after snapshots produced win probability deltas.")
+
+    stats = impact.select(
+        [
+            pl.col("win_prob_delta").min().alias("min_win_prob_delta"),
+            pl.col("win_prob_delta").max().alias("max_win_prob_delta"),
+            pl.col("win_prob_delta").mean().alias("mean_win_prob_delta"),
+            pl.col("win_prob_before").null_count().alias("win_prob_before_null_count"),
+            pl.col("win_prob_after").null_count().alias("win_prob_after_null_count"),
+            pl.col("win_prob_delta").null_count().alias("win_prob_delta_null_count"),
+        ]
+    ).row(0, named=True)
+
+    LOGGER.info("min_win_prob_delta=%s", stats["min_win_prob_delta"])
+    LOGGER.info("max_win_prob_delta=%s", stats["max_win_prob_delta"])
+    LOGGER.info("mean_win_prob_delta=%s", stats["mean_win_prob_delta"])
+    LOGGER.info("win_prob_before_null_count=%s", stats["win_prob_before_null_count"])
+    LOGGER.info("win_prob_after_null_count=%s", stats["win_prob_after_null_count"])
+
+    delta_null_count = int(stats["win_prob_delta_null_count"])
+    if delta_null_count:
+        raise RuntimeError(f"win_prob_delta contains {delta_null_count} null value(s).")
+
+
 def main() -> None:
     configure_logging()
     args = parse_args()
@@ -140,6 +167,8 @@ def main() -> None:
     impact_outputs = build_ml_impact_from_snapshots(snapshots_with_probs)
 
     impact = impact_outputs["ml_event_impact"]
+    log_impact_sanity(impact)
+
     top_positive = impact.head(args.top_n)
     top_negative = impact.sort(
         ["win_prob_delta", "match_id", "round_num", "tick_after"],
@@ -151,7 +180,6 @@ def main() -> None:
     top_positive_rows = save_json_rows(args.top_positive_out, top_positive)
     top_negative_rows = save_json_rows(args.top_negative_out, top_negative)
 
-    LOGGER.info("impact_rows=%s", impact.height)
     LOGGER.info("top_positive_deltas=%s", top_positive.select("win_prob_delta").to_series().to_list())
     LOGGER.info("top_negative_deltas=%s", top_negative.select("win_prob_delta").to_series().to_list())
     LOGGER.info(

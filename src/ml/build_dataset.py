@@ -8,7 +8,7 @@ SRC_DIR = Path(__file__).resolve().parents[1]
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from dataset import DEFAULT_OUTPUT_PATH, build_combined_snapshot_dataset, discover_cache_keys, save_snapshot_dataset
+from ml.dataset import DEFAULT_OUTPUT_PATH, build_combined_snapshot_dataset, discover_cache_keys, save_snapshot_dataset
 
 
 def main() -> None:

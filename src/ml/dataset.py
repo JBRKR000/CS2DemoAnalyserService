@@ -12,7 +12,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from Parser import load_cached_demo
-from features import (
+from ml.features import (
     MAX_PLAYERS_PER_SIDE,
     MAX_REASONABLE_ROUND_SECONDS,
     SNAPSHOT_COLUMNS,
