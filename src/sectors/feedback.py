@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import polars as pl
+
 
 _METRIC_CATEGORY = {
     "adr": "impact",
@@ -15,6 +17,38 @@ _METRIC_CATEGORY = {
     "force_win_rate": "economy",
     "clutch_win_rate": "clutch",
 }
+
+MAX_TIP_EXAMPLES = 3
+_ROUND_PHASE_PRIORITY = {"late": 0, "mid": 1, "early": 2}
+_HS_MEANINGFUL_WEAPONS = {
+    "ak47",
+    "aug",
+    "bizon",
+    "cz75a",
+    "deagle",
+    "elite",
+    "famas",
+    "fiveseven",
+    "galilar",
+    "glock",
+    "hkp2000",
+    "m249",
+    "m4a1",
+    "m4a1_silencer",
+    "mac10",
+    "mp5sd",
+    "mp7",
+    "mp9",
+    "negev",
+    "p250",
+    "p90",
+    "revolver",
+    "sg556",
+    "tec9",
+    "ump45",
+    "usp_silencer",
+}
+_HS_AWP_FALLBACK_WEAPONS = {"awp"}
 
 
 def _tip(
@@ -102,6 +136,370 @@ def _to_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _safe_frame(value: Any) -> pl.DataFrame:
+    return value if isinstance(value, pl.DataFrame) else pl.DataFrame()
+
+
+def _safe_rows(value: Any) -> list[dict[str, Any]]:
+    return [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
+
+
+def _safe_text(value: Any, fallback: str = "unknown") -> str:
+    text = str(value or "").strip()
+    return text if text else fallback
+
+
+def _safe_round_num(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _safe_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return bool(value)
+
+
+def _normalize_side(value: Any) -> str:
+    side = str(value or "").strip().upper()
+    return side if side else "-"
+
+
+def _format_damage(value: Any) -> str:
+    damage = _to_float(value, 0.0)
+    if float(damage).is_integer():
+        return str(int(damage))
+    return f"{damage:.1f}"
+
+
+def _format_pp(value: Any) -> str | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"{float(value) * 100.0:+.1f} pp"
+    return None
+
+
+def _death_phase_priority(value: Any) -> int:
+    return _ROUND_PHASE_PRIORITY.get(str(value or "").strip().lower(), len(_ROUND_PHASE_PRIORITY))
+
+
+def _ml_deaths_by_round(player_ml_impact: Any) -> dict[int, dict[str, Any]]:
+    if not isinstance(player_ml_impact, dict):
+        return {}
+
+    rows = _safe_rows(player_ml_impact.get("worst_deaths"))
+    result: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        round_num = _safe_round_num(row.get("round_num"))
+        if round_num > 0 and round_num not in result:
+            result[round_num] = row
+    return result
+
+
+def _death_events(stats: dict[str, Any]) -> list[dict[str, Any]]:
+    timeline_events = _safe_frame(stats.get("selected_player_timeline_events"))
+    if timeline_events.is_empty() or "event_type" not in timeline_events.columns:
+        return []
+    death_rows = timeline_events.filter(pl.col("event_type") == "death")
+    if death_rows.is_empty():
+        return []
+    sort_columns = [column for column in ["round_num", "tick"] if column in death_rows.columns]
+    if sort_columns:
+        death_rows = death_rows.sort(sort_columns)
+    return death_rows.to_dicts()
+
+
+def _kill_events(stats: dict[str, Any]) -> list[dict[str, Any]]:
+    timeline_events = _safe_frame(stats.get("selected_player_timeline_events"))
+    if timeline_events.is_empty() or "event_type" not in timeline_events.columns:
+        return []
+    kill_rows = timeline_events.filter(pl.col("event_type") == "kill")
+    if kill_rows.is_empty():
+        return []
+    sort_columns = [column for column in ["round_num", "tick"] if column in kill_rows.columns]
+    if sort_columns:
+        kill_rows = kill_rows.sort(sort_columns)
+    return kill_rows.to_dicts()
+
+
+def _failed_clutch_rounds(stats: dict[str, Any]) -> list[dict[str, Any]]:
+    clutch_rounds = _safe_frame(stats.get("selected_player_clutch_rounds"))
+    if clutch_rounds.is_empty() or "won" not in clutch_rounds.columns:
+        return []
+    failed_rows = clutch_rounds.filter(~pl.col("won").fill_null(False))
+    if failed_rows.is_empty():
+        return []
+    if "round_num" in failed_rows.columns:
+        failed_rows = failed_rows.sort("round_num")
+    return failed_rows.to_dicts()
+
+
+def _build_untraded_examples(stats: dict[str, Any]) -> list[str]:
+    ml_deaths = _ml_deaths_by_round(stats.get("player_ml_impact"))
+    candidates = [row for row in _death_events(stats) if not _safe_bool(row.get("is_traded_death"))]
+    if not candidates:
+        return []
+
+    if ml_deaths:
+        candidates.sort(
+            key=lambda row: (
+                0 if _safe_round_num(row.get("round_num")) in ml_deaths else 1,
+                _to_float(ml_deaths.get(_safe_round_num(row.get("round_num")), {}).get("win_prob_delta"), 0.0),
+                _death_phase_priority(row.get("round_phase")),
+                _safe_round_num(row.get("round_num")),
+            )
+        )
+    else:
+        candidates.sort(
+            key=lambda row: (
+                _death_phase_priority(row.get("round_phase")),
+                _safe_round_num(row.get("round_num")),
+            )
+        )
+
+    examples: list[str] = []
+    for row in candidates[:MAX_TIP_EXAMPLES]:
+        round_num = _safe_round_num(row.get("round_num"))
+        ml_row = ml_deaths.get(round_num, {})
+        parts = [
+            f"Round {round_num}",
+            _normalize_side(row.get("side")),
+            f"died to {_safe_text(row.get('target_name'), 'Unknown killer')} with {_safe_text(row.get('weapon'), 'unknown weapon')}",
+        ]
+        phase = str(row.get("round_phase") or "").strip().lower()
+        if phase in {"early", "mid", "late"}:
+            parts.append(phase)
+        ml_impact = _format_pp(ml_row.get("win_prob_delta"))
+        if ml_impact is not None:
+            parts.append(ml_impact)
+        examples.append(" | ".join(parts))
+    return examples
+
+
+def _build_low_impact_examples(stats: dict[str, Any], max_damage: float) -> list[str]:
+    ml_deaths = _ml_deaths_by_round(stats.get("player_ml_impact"))
+    candidates = [
+        row
+        for row in _death_events(stats)
+        if _to_float(row.get("damage_before_death"), 0.0) <= max_damage
+    ]
+    if not candidates:
+        return []
+
+    candidates.sort(
+        key=lambda row: (
+            0 if _safe_round_num(row.get("round_num")) in ml_deaths else 1,
+            _to_float(ml_deaths.get(_safe_round_num(row.get("round_num")), {}).get("win_prob_delta"), 0.0),
+            _to_float(row.get("damage_before_death"), 0.0),
+            _safe_round_num(row.get("round_num")),
+        )
+    )
+
+    examples: list[str] = []
+    for row in candidates[:MAX_TIP_EXAMPLES]:
+        round_num = _safe_round_num(row.get("round_num"))
+        ml_row = ml_deaths.get(round_num, {})
+        parts = [
+            f"Round {round_num}",
+            _normalize_side(row.get("side")),
+            f"{_format_damage(row.get('damage_before_death'))} dmg before death",
+            f"died to {_safe_text(row.get('target_name'), 'Unknown killer')} with {_safe_text(row.get('weapon'), 'unknown weapon')}",
+        ]
+        ml_impact = _format_pp(ml_row.get("win_prob_delta"))
+        if ml_impact is not None:
+            parts.append(ml_impact)
+        examples.append(" | ".join(parts))
+    return examples
+
+
+def _build_clutch_examples(stats: dict[str, Any]) -> list[str]:
+    ml_deaths = _ml_deaths_by_round(stats.get("player_ml_impact"))
+    deaths_by_round = {_safe_round_num(row.get("round_num")): row for row in _death_events(stats)}
+    examples: list[str] = []
+
+    for clutch_row in _failed_clutch_rounds(stats)[:MAX_TIP_EXAMPLES]:
+        round_num = _safe_round_num(clutch_row.get("round_num"))
+        death_row = deaths_by_round.get(round_num, {})
+        ml_row = ml_deaths.get(round_num, {})
+        parts = [
+            f"Round {round_num}",
+            _normalize_side(clutch_row.get("side")),
+            _safe_text(clutch_row.get("clutch_type"), "1vX"),
+            "lost",
+        ]
+        if death_row:
+            parts.append(
+                f"died to {_safe_text(death_row.get('target_name'), 'Unknown killer')} with {_safe_text(death_row.get('weapon'), 'unknown weapon')}"
+            )
+        ml_impact = _format_pp(ml_row.get("win_prob_delta"))
+        if ml_impact is not None:
+            parts.append(ml_impact)
+        examples.append(" | ".join(parts))
+    return examples
+
+
+def _normalize_weapon(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _is_rifle_weapon(weapon: str) -> bool:
+    return weapon in {
+        "ak47",
+        "aug",
+        "famas",
+        "galilar",
+        "m4a1",
+        "m4a1_silencer",
+        "sg556",
+    }
+
+
+def _ml_kills_by_key(player_ml_impact: Any) -> dict[tuple[int, str, str, str], dict[str, Any]]:
+    if not isinstance(player_ml_impact, dict):
+        return {}
+
+    rows = _safe_rows(player_ml_impact.get("kill_events"))
+    if not rows:
+        rows = _safe_rows(player_ml_impact.get("best_kills"))
+
+    result: dict[tuple[int, str, str, str], dict[str, Any]] = {}
+    for row in rows:
+        key = (
+            _safe_round_num(row.get("round_num")),
+            _normalize_side(row.get("side")),
+            _safe_text(row.get("victim_name"), "Unknown victim"),
+            _normalize_weapon(row.get("weapon")),
+        )
+        existing = result.get(key)
+        if existing is None or _to_float(row.get("win_prob_delta"), 0.0) > _to_float(existing.get("win_prob_delta"), 0.0):
+            result[key] = row
+    return result
+
+
+def _build_hs_examples(stats: dict[str, Any]) -> list[str]:
+    ml_kills = _ml_kills_by_key(stats.get("player_ml_impact"))
+    non_hs_kills = [row for row in _kill_events(stats) if not _safe_bool(row.get("is_headshot"))]
+    if not non_hs_kills:
+        return []
+
+    primary_candidates = [
+        row for row in non_hs_kills if _normalize_weapon(row.get("weapon")) in _HS_MEANINGFUL_WEAPONS
+    ]
+    fallback_candidates = [
+        row for row in non_hs_kills if _normalize_weapon(row.get("weapon")) in _HS_AWP_FALLBACK_WEAPONS
+    ]
+    candidates = primary_candidates if primary_candidates else fallback_candidates
+    if not candidates:
+        return []
+
+    candidates.sort(
+        key=lambda row: (
+            0
+            if (
+                _safe_round_num(row.get("round_num")),
+                _normalize_side(row.get("side")),
+                _safe_text(row.get("target_name"), "Unknown victim"),
+                _normalize_weapon(row.get("weapon")),
+            )
+            in ml_kills
+            else 1,
+            -_to_float(
+                ml_kills.get(
+                    (
+                        _safe_round_num(row.get("round_num")),
+                        _normalize_side(row.get("side")),
+                        _safe_text(row.get("target_name"), "Unknown victim"),
+                        _normalize_weapon(row.get("weapon")),
+                    ),
+                    {},
+                ).get("win_prob_delta"),
+                0.0,
+            ),
+            0 if _is_rifle_weapon(_normalize_weapon(row.get("weapon"))) else 1,
+            _safe_round_num(row.get("round_num")),
+        )
+    )
+
+    examples: list[str] = []
+    for row in candidates[:MAX_TIP_EXAMPLES]:
+        key = (
+            _safe_round_num(row.get("round_num")),
+            _normalize_side(row.get("side")),
+            _safe_text(row.get("target_name"), "Unknown victim"),
+            _normalize_weapon(row.get("weapon")),
+        )
+        ml_row = ml_kills.get(key, {})
+        parts = [
+            f"Round {_safe_round_num(row.get('round_num'))}",
+            _normalize_side(row.get("side")),
+            f"killed {_safe_text(row.get('target_name'), 'Unknown victim')} with {_safe_text(row.get('weapon'), 'unknown weapon')}",
+            "non-HS",
+        ]
+        ml_impact = _format_pp(ml_row.get("win_prob_delta"))
+        if ml_impact is not None:
+            parts.append(ml_impact)
+        examples.append(" | ".join(parts))
+    return examples
+
+
+def _build_positive_examples(metric: str, stats: dict[str, Any]) -> list[str]:
+    player_ml_impact = stats.get("player_ml_impact")
+    if not isinstance(player_ml_impact, dict):
+        return []
+
+    candidates = _safe_rows(player_ml_impact.get("best_kills"))
+    if metric == "opening_duel_win_pct":
+        opening_candidates = [row for row in candidates if _safe_bool(row.get("is_opening"))]
+        if opening_candidates:
+            candidates = opening_candidates
+
+    examples: list[str] = []
+    for row in candidates[:MAX_TIP_EXAMPLES]:
+        parts = [
+            f"Round {_safe_round_num(row.get('round_num'))}",
+            _normalize_side(row.get("side")),
+            f"killed {_safe_text(row.get('victim_name'), 'Unknown victim')} with {_safe_text(row.get('weapon'), 'unknown weapon')}",
+        ]
+        ml_impact = _format_pp(row.get("win_prob_delta"))
+        if ml_impact is not None:
+            parts.append(ml_impact)
+        examples.append(" | ".join(parts))
+    return examples
+
+
+def build_tip_evidence(tip: dict[str, Any], stats: dict[str, Any]) -> list[str]:
+    metric = str(tip.get("metric") or "")
+    severity = str(tip.get("severity") or "")
+
+    if metric == "untraded_death_rate":
+        return _build_untraded_examples(stats)
+    if metric == "hs_percent" and severity in {"critical", "warning"}:
+        return _build_hs_examples(stats)
+    if metric == "deaths_with_0_damage":
+        return _build_low_impact_examples(stats, max_damage=0.0)
+    if metric == "deaths_under_40_damage":
+        return _build_low_impact_examples(stats, max_damage=39.999)
+    if metric == "clutch_win_rate" and severity in {"critical", "warning"}:
+        return _build_clutch_examples(stats)
+    if severity == "good" and metric in {"adr", "kpr", "opening_duel_win_pct"}:
+        return _build_positive_examples(metric, stats)
+    return []
+
+
+def _attach_tip_evidence(tips: list[dict[str, Any]], stats: dict[str, Any]) -> list[dict[str, Any]]:
+    enriched: list[dict[str, Any]] = []
+    for tip in tips:
+        examples = build_tip_evidence(tip, stats)
+        if examples:
+            enriched.append({**tip, "evidence": examples[:MAX_TIP_EXAMPLES]})
+        else:
+            enriched.append(tip)
+    return enriched
 
 
 def _impact_tips(stats: dict[str, Any]) -> list[dict[str, Any]]:
@@ -347,4 +745,4 @@ def generate_feedback(stats: dict[str, Any]) -> list[dict[str, Any]]:
     if remaining > 0 and deduped_positive:
         # Keep positives rare and focused.
         result.extend(deduped_positive[:1])
-    return result
+    return _attach_tip_evidence(result, stats)

@@ -115,6 +115,7 @@ def build_player_ml_impact_summary(
         "total_death_impact": total_death_impact,
         "avg_death_impact": _mean_or_none(negative_actions, "win_prob_delta"),
         "net_ml_impact": total_kill_impact + total_death_impact,
+        "kill_events": _events_to_rows(positive_actions),
         "best_kills": _events_to_rows(best_kills),
         "low_impact_kills": _events_to_rows(low_impact_kills),
         "worst_deaths": _events_to_rows(worst_deaths),

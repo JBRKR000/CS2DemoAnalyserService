@@ -85,6 +85,12 @@ def _selected_impact_rows(impact_df: pl.DataFrame, steamid: int | None) -> dict[
     return by_side
 
 
+def _selected_rows(frame: pl.DataFrame, steamid: int | None) -> pl.DataFrame:
+    if frame.is_empty() or steamid is None or "steamid" not in frame.columns:
+        return pl.DataFrame()
+    return frame.filter(pl.col("steamid") == steamid)
+
+
 def _load_player_ml_impact_summary(
     selected_steamid: int | str | None,
     match_id: str | None = None,
@@ -720,6 +726,14 @@ def analyse_demo(demo, player_selector: str | int | None = None, match_id: str |
         round_timeline_stats.get("player_impact_summary", pl.DataFrame()),
         selected_steamid,
     )
+    selected_timeline_events = _selected_rows(
+        round_timeline_stats.get("timeline_events", pl.DataFrame()),
+        selected_steamid,
+    )
+    selected_clutch_rounds = _selected_rows(
+        clutch_stats.get("clutch_rounds", pl.DataFrame()),
+        selected_steamid,
+    )
     player_ml_impact = _load_player_ml_impact_summary(selected_steamid, match_id=match_id)
 
     feedback = generate_feedback(
@@ -730,6 +744,9 @@ def analyse_demo(demo, player_selector: str | int | None = None, match_id: str |
             "benchmark_evaluations": benchmark_evaluations,
             "impact_summary": selected_impact,
             "selected_player_impact": selected_impact.get("ALL", {}),
+            "selected_player_timeline_events": selected_timeline_events,
+            "selected_player_clutch_rounds": selected_clutch_rounds,
+            "player_ml_impact": player_ml_impact,
         }
     )
 

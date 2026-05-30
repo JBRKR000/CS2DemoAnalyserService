@@ -156,6 +156,18 @@ def _append_ml_event_list(lines: list[str], title: str, rows: Any) -> None:
             lines.append(f"- {_format_ml_event(row)}")
 
 
+def format_tip_evidence(tip: dict[str, Any]) -> list[str]:
+    evidence_raw = tip.get("evidence")
+    if not isinstance(evidence_raw, list):
+        return []
+
+    evidence = [str(item).strip() for item in evidence_raw if str(item).strip()]
+    if not evidence:
+        return []
+
+    return ["Examples:", *(f"- {item}" for item in evidence[:3])]
+
+
 def build_match_report(analysis: dict[str, Any]) -> dict[str, Any]:
     safe_analysis = _safe_dict(analysis)
 
@@ -481,6 +493,7 @@ def format_report_text(report: dict[str, Any]) -> str:
             message = str(tip.get("message", "-"))
             lines.append(f"[{severity}] {title}")
             lines.append(message)
+            lines.extend(format_tip_evidence(tip))
             lines.append("")
         if lines and lines[-1] == "":
             lines.pop()
