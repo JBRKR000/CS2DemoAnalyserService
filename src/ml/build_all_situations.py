@@ -336,8 +336,36 @@ def _sort_situations(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             _safe_int(row.get("round_num")) or 0,
             _safe_int(row.get("tick")) if row.get("tick") is not None else -1,
             str(row.get("situation_type") or ""),
+            str(row.get("steamid") or ""),
+            str(row.get("situation_id") or ""),
         ),
     )
+
+
+def _dedupe_situations_by_id(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    situations_before_dedupe = len(rows)
+    duplicate_ids = {
+        situation_id
+        for situation_id, count in Counter(str(row.get("situation_id") or "") for row in rows).items()
+        if situation_id and count > 1
+    }
+    if not duplicate_ids:
+        return rows
+
+    deduped_rows: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for row in rows:
+        situation_id = str(row.get("situation_id") or "")
+        if situation_id:
+            if situation_id in seen_ids:
+                continue
+            seen_ids.add(situation_id)
+        deduped_rows.append(row)
+
+    LOGGER.info("situations_before_dedupe=%d", situations_before_dedupe)
+    LOGGER.info("duplicate_situation_id_count=%d", len(duplicate_ids))
+    LOGGER.info("situations_after_dedupe=%d", len(deduped_rows))
+    return deduped_rows
 
 
 def _log_summary(
@@ -550,6 +578,7 @@ def main() -> None:
         limit_players=args.limit_players,
         continue_on_error=args.continue_on_error,
     )
+    rows = _dedupe_situations_by_id(rows)
 
     save_situations_parquet(rows, output_path)
     if args.json:
