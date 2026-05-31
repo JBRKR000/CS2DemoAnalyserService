@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 from typing import Any
 
 
@@ -168,6 +169,494 @@ def format_tip_evidence(tip: dict[str, Any]) -> list[str]:
     return ["Examples:", *(f"- {item}" for item in evidence[:3])]
 
 
+_ROUND_REFERENCE_RE = re.compile(r"\bRound\s+(\d+)\b", re.IGNORECASE)
+_REVIEW_TYPE_ORDER = {"mistake": 0, "mixed": 1, "strength": 2}
+
+
+def _safe_rows(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, list):
+        return [row for row in value if isinstance(row, dict)]
+
+    to_dicts = getattr(value, "to_dicts", None)
+    if callable(to_dicts):
+        rows = to_dicts()
+        if isinstance(rows, list):
+            return [row for row in rows if isinstance(row, dict)]
+
+    return []
+
+
+def _safe_round_num(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _safe_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return bool(value)
+
+
+def _to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _normalize_side(value: Any) -> str:
+    side = str(value or "").strip().upper()
+    return side if side else "-"
+
+
+def _parse_round_reference(text: Any) -> int:
+    match = _ROUND_REFERENCE_RE.search(str(text or ""))
+    if not match:
+        return 0
+    return _safe_round_num(match.group(1))
+
+
+def _parse_tip_evidence_details(text: Any) -> dict[str, Any]:
+    raw_text = str(text or "").strip()
+    round_num = _parse_round_reference(raw_text)
+    if round_num <= 0:
+        return {}
+
+    parts = [part.strip() for part in raw_text.split("|")]
+    side = ""
+    damage_context = ""
+    death_summary = ""
+
+    if len(parts) >= 2:
+        possible_side = _normalize_side(parts[1])
+        if possible_side in {"T", "CT"}:
+            side = possible_side
+
+    for part in parts[2:]:
+        lower_part = part.lower()
+        if not damage_context and "dmg before death" in lower_part:
+            damage_context = part
+            continue
+        if not death_summary and "died to " in lower_part:
+            death_summary = part
+
+    return {
+        "round_num": round_num,
+        "evidence_side": side,
+        "evidence_damage_context": damage_context,
+        "evidence_summary": death_summary,
+    }
+
+
+def _tip_reason(metric: str, severity: str) -> tuple[str, str, int] | None:
+    if metric == "deaths_with_0_damage":
+        return ("zero-damage death", "negative", 6)
+    if metric == "deaths_under_40_damage":
+        return ("low-damage death under 40", "negative", 4)
+    if metric == "untraded_death_rate":
+        return ("untraded death", "negative", 4)
+    if metric == "clutch_win_rate" and severity in {"critical", "warning"}:
+        return ("failed clutch", "negative", 3)
+    if metric == "opening_duel_win_pct" and severity == "good":
+        return ("strong opening duel", "positive", 3)
+    if metric in {"adr", "kpr"} and severity == "good":
+        return ("high-impact kill", "positive", 2)
+    return None
+
+
+def _ml_reason_weight(value: float, polarity: str) -> int:
+    magnitude = abs(value) * 100.0
+    if magnitude >= 30.0:
+        return 4
+    if magnitude >= 20.0:
+        return 3
+    if magnitude >= 10.0:
+        return 2
+    if polarity == "positive" and magnitude >= 5.0:
+        return 1
+    return 0
+
+
+def _new_review_round(round_num: int) -> dict[str, Any]:
+    return {
+        "round_num": round_num,
+        "side": "-",
+        "reason_map": {},
+        "evidence_side": "",
+        "evidence_summary": "",
+        "evidence_damage_context": "",
+        "death_row": None,
+        "opening_kill_row": None,
+        "kill_rows": [],
+        "negative_ml": None,
+        "negative_ml_row": None,
+        "positive_ml": None,
+        "positive_ml_row": None,
+    }
+
+
+def _ensure_review_round(candidates: dict[int, dict[str, Any]], round_num: int) -> dict[str, Any]:
+    entry = candidates.get(round_num)
+    if entry is None:
+        entry = _new_review_round(round_num)
+        candidates[round_num] = entry
+    return entry
+
+
+def _update_round_side(entry: dict[str, Any], side: Any) -> None:
+    normalized = _normalize_side(side)
+    if entry.get("side") in {None, "-", ""} and normalized != "-":
+        entry["side"] = normalized
+
+
+def _update_evidence_details(entry: dict[str, Any], details: dict[str, Any]) -> None:
+    evidence_side = _normalize_side(details.get("evidence_side"))
+    if evidence_side in {"T", "CT"}:
+        existing_side = _normalize_side(entry.get("evidence_side"))
+        if existing_side not in {"T", "CT"}:
+            entry["evidence_side"] = evidence_side
+        _update_round_side(entry, evidence_side)
+
+    evidence_summary = str(details.get("evidence_summary") or "").strip()
+    if evidence_summary and not str(entry.get("evidence_summary") or "").strip():
+        entry["evidence_summary"] = evidence_summary
+
+    damage_context = str(details.get("evidence_damage_context") or "").strip()
+    if damage_context and not str(entry.get("evidence_damage_context") or "").strip():
+        entry["evidence_damage_context"] = damage_context
+
+
+def _add_round_reason(entry: dict[str, Any], label: str, polarity: str, weight: int) -> None:
+    if weight <= 0 or not label:
+        return
+
+    reason_map = entry["reason_map"]
+    existing = reason_map.get(label)
+    if existing is None or weight > int(existing.get("weight") or 0):
+        reason_map[label] = {
+            "label": label,
+            "polarity": polarity,
+            "weight": weight,
+        }
+
+
+def _death_actor_name(row: dict[str, Any]) -> str:
+    return _safe_text(row.get("target_name") or row.get("killer_name"), "Unknown killer")
+
+
+def _kill_actor_name(row: dict[str, Any]) -> str:
+    return _safe_text(row.get("target_name") or row.get("victim_name"), "Unknown victim")
+
+
+def _round_tick(row: dict[str, Any]) -> int:
+    return _safe_round_num(row.get("tick") or row.get("tick_after") or row.get("tick_before"))
+
+
+def _select_primary_ml_impact(item: dict[str, Any]) -> float | None:
+    negative_ml = item.get("negative_ml")
+    positive_ml = item.get("positive_ml")
+    if isinstance(negative_ml, (int, float)) and isinstance(positive_ml, (int, float)):
+        return float(negative_ml) if abs(float(negative_ml)) >= abs(float(positive_ml)) else float(positive_ml)
+    if isinstance(negative_ml, (int, float)):
+        return float(negative_ml)
+    if isinstance(positive_ml, (int, float)):
+        return float(positive_ml)
+    return None
+
+
+def _build_death_summary(row: dict[str, Any]) -> str:
+    killer = _death_actor_name(row)
+    weapon = _safe_text(row.get("weapon"), "unknown weapon")
+    damage = _to_float(row.get("damage_before_death"), 0.0)
+    if damage <= 0.0:
+        damage_text = "after creating no damage"
+    elif damage < 40.0:
+        damage_text = f"after only {_format_number(damage, digits=0)} damage"
+    else:
+        damage_text = f"after {_format_number(damage, digits=0)} damage"
+    return f"died to {killer} with {weapon} {damage_text}."
+
+
+def _build_kill_summary(row: dict[str, Any], kill_count: int) -> str:
+    victim = _kill_actor_name(row)
+    weapon = _safe_text(row.get("weapon"), "unknown weapon")
+    if _safe_bool(row.get("is_opening") or row.get("is_opening_kill")):
+        suffix = " in a strong opening duel."
+    elif kill_count >= 2:
+        suffix = f" as part of a {kill_count}-kill round."
+    else:
+        suffix = " in a round-swinging duel."
+    return f"killed {victim} with {weapon}{suffix}"
+
+
+def _build_mixed_summary(item: dict[str, Any]) -> str:
+    opening_row = item.get("opening_kill_row")
+    death_row = item.get("death_row")
+    if isinstance(opening_row, dict) and isinstance(death_row, dict):
+        victim = _kill_actor_name(opening_row)
+        weapon = _safe_text(opening_row.get("weapon"), "unknown weapon")
+        if not _safe_bool(death_row.get("is_traded_death")):
+            return f"won the opener on {victim} with {weapon} but later died untraded."
+        return f"won the opener on {victim} with {weapon} but still lost impact later in the round."
+
+    positive_ml_row = item.get("positive_ml_row")
+    if isinstance(positive_ml_row, dict):
+        return _build_kill_summary(positive_ml_row, len(item.get("kill_rows") or []))
+
+    if isinstance(death_row, dict):
+        return _build_death_summary(death_row)
+
+    return "mixed round with both useful impact and a review-worthy mistake."
+
+
+def _build_evidence_summary(item: dict[str, Any]) -> str | None:
+    damage_context = str(item.get("evidence_damage_context") or "").strip()
+    evidence_summary = str(item.get("evidence_summary") or "").strip()
+    parts = [part for part in [damage_context, evidence_summary] if part]
+    if not parts:
+        return None
+
+    summary = "; ".join(parts).rstrip(".;")
+    return f"{summary}."
+
+
+def _build_review_summary(item: dict[str, Any], review_type: str) -> str:
+    death_row = item.get("death_row")
+    negative_ml_row = item.get("negative_ml_row")
+    positive_ml_row = item.get("positive_ml_row")
+    kill_rows = item.get("kill_rows") or []
+
+    if review_type == "mistake":
+        if isinstance(death_row, dict):
+            return _build_death_summary(death_row)
+        if isinstance(negative_ml_row, dict):
+            row = negative_ml_row
+            killer = _death_actor_name(row)
+            weapon = _safe_text(row.get("weapon"), "unknown weapon")
+            return f"died to {killer} with {weapon} in a high-cost ML swing."
+        evidence_summary = _build_evidence_summary(item)
+        if evidence_summary is not None:
+            return evidence_summary
+        return "mistake-heavy round with multiple low-value outcomes."
+
+    if review_type == "strength":
+        if isinstance(positive_ml_row, dict):
+            return _build_kill_summary(positive_ml_row, len(kill_rows))
+        if kill_rows:
+            return _build_kill_summary(kill_rows[0], len(kill_rows))
+        return "strength round with clear positive impact worth repeating."
+
+    return _build_mixed_summary(item)
+
+
+def build_vod_review_priority(report_data: dict[str, Any], top_n: int = 5) -> list[dict[str, Any]]:
+    if top_n <= 0:
+        return []
+
+    safe_report = _safe_dict(report_data)
+    feedback = [tip for tip in safe_report.get("feedback", []) if isinstance(tip, dict)]
+    timeline_events = _safe_rows(safe_report.get("selected_player_timeline_events"))
+    ml_impact = _safe_dict(safe_report.get("ml_impact"))
+
+    if not feedback and not timeline_events and not ml_impact:
+        return []
+
+    candidates: dict[int, dict[str, Any]] = {}
+
+    for tip in feedback:
+        metric = str(tip.get("metric") or "")
+        severity = str(tip.get("severity") or "")
+        reason = _tip_reason(metric, severity)
+        evidence = tip.get("evidence")
+        if reason is None or not isinstance(evidence, list):
+            continue
+
+        label, polarity, weight = reason
+        for item in evidence:
+            evidence_details = _parse_tip_evidence_details(item)
+            round_num = _safe_round_num(evidence_details.get("round_num"))
+            if round_num <= 0:
+                continue
+            entry = _ensure_review_round(candidates, round_num)
+            _update_evidence_details(entry, evidence_details)
+            _add_round_reason(entry, label, polarity, weight)
+
+    for row in timeline_events:
+        round_num = _safe_round_num(row.get("round_num"))
+        if round_num <= 0:
+            continue
+
+        entry = _ensure_review_round(candidates, round_num)
+        _update_round_side(entry, row.get("side"))
+        event_type = str(row.get("event_type") or "").strip().lower()
+
+        if event_type == "death":
+            current_death = entry.get("death_row")
+            if not isinstance(current_death, dict) or _round_tick(row) < _round_tick(current_death):
+                entry["death_row"] = row
+
+            damage_before_death = _to_float(row.get("damage_before_death"), 0.0)
+            if damage_before_death <= 0.0:
+                _add_round_reason(entry, "zero-damage death", "negative", 6)
+            elif damage_before_death < 40.0:
+                _add_round_reason(entry, "low-damage death under 40", "negative", 4)
+
+            if not _safe_bool(row.get("is_traded_death")):
+                _add_round_reason(entry, "untraded death", "negative", 4)
+
+            if _safe_bool(row.get("is_opening_death")) or str(row.get("round_phase") or "").strip().lower() == "early":
+                _add_round_reason(entry, "early death", "negative", 2)
+
+        if event_type == "kill":
+            kill_rows = entry["kill_rows"]
+            kill_rows.append(row)
+            if _safe_bool(row.get("is_opening_kill")) and not isinstance(entry.get("opening_kill_row"), dict):
+                entry["opening_kill_row"] = row
+                _add_round_reason(entry, "strong opening duel", "positive", 3)
+
+    for row in _safe_rows(ml_impact.get("worst_deaths")):
+        round_num = _safe_round_num(row.get("round_num"))
+        if round_num <= 0:
+            continue
+
+        impact_value = _to_float(row.get("win_prob_delta"), 0.0)
+        if impact_value >= 0.0:
+            continue
+
+        entry = _ensure_review_round(candidates, round_num)
+        _update_round_side(entry, row.get("side"))
+        current_negative = entry.get("negative_ml")
+        if not isinstance(current_negative, (int, float)) or impact_value < float(current_negative):
+            entry["negative_ml"] = impact_value
+            entry["negative_ml_row"] = row
+
+        ml_weight = _ml_reason_weight(impact_value, "negative")
+        _add_round_reason(entry, f"{_format_event_pp(impact_value)} ML impact", "negative", ml_weight)
+
+    for row in _safe_rows(ml_impact.get("best_kills")):
+        round_num = _safe_round_num(row.get("round_num"))
+        if round_num <= 0:
+            continue
+
+        impact_value = _to_float(row.get("win_prob_delta"), 0.0)
+        if impact_value <= 0.0:
+            continue
+
+        entry = _ensure_review_round(candidates, round_num)
+        _update_round_side(entry, row.get("side"))
+        current_positive = entry.get("positive_ml")
+        if not isinstance(current_positive, (int, float)) or impact_value > float(current_positive):
+            entry["positive_ml"] = impact_value
+            entry["positive_ml_row"] = row
+
+        ml_weight = _ml_reason_weight(impact_value, "positive")
+        _add_round_reason(entry, f"{_format_event_pp(impact_value)} ML impact", "positive", ml_weight)
+        if _safe_bool(row.get("is_opening")):
+            _add_round_reason(entry, "strong opening duel", "positive", 3)
+
+    prioritized_rounds: list[dict[str, Any]] = []
+    for entry in candidates.values():
+        kill_rows = entry.get("kill_rows") or []
+        if len(kill_rows) >= 2:
+            if len(kill_rows) >= 3 or _to_float(entry.get("positive_ml"), 0.0) >= 0.15:
+                _add_round_reason(entry, "high-impact multi-kill round", "positive", 3)
+            else:
+                _add_round_reason(entry, "high-impact multi-kill round", "positive", 2)
+
+        reasons = [reason for reason in entry.get("reason_map", {}).values() if isinstance(reason, dict)]
+        if not reasons:
+            continue
+
+        negative_score = sum(
+            int(reason.get("weight") or 0)
+            for reason in reasons
+            if str(reason.get("polarity") or "") == "negative"
+        )
+        positive_score = sum(
+            int(reason.get("weight") or 0)
+            for reason in reasons
+            if str(reason.get("polarity") or "") == "positive"
+        )
+        if negative_score <= 0 and positive_score <= 0:
+            continue
+
+        if negative_score > 0 and positive_score > 0:
+            review_type = "mixed"
+        elif negative_score > 0:
+            review_type = "mistake"
+        else:
+            review_type = "strength"
+
+        total_score = negative_score + positive_score
+        if total_score >= 9 or negative_score >= 8 or positive_score >= 8:
+            priority = "high"
+        elif total_score >= 5 or negative_score >= 4 or positive_score >= 4:
+            priority = "medium"
+        else:
+            priority = "low"
+
+        if review_type == "strength":
+            reasons.sort(
+                key=lambda reason: (
+                    0 if str(reason.get("polarity") or "") == "positive" else 1,
+                    -int(reason.get("weight") or 0),
+                    str(reason.get("label") or ""),
+                )
+            )
+        else:
+            reasons.sort(
+                key=lambda reason: (
+                    0 if str(reason.get("polarity") or "") == "negative" else 1,
+                    -int(reason.get("weight") or 0),
+                    str(reason.get("label") or ""),
+                )
+            )
+
+        prioritized_rounds.append(
+            {
+                "round_num": int(entry["round_num"]),
+                "side": _normalize_side(entry.get("side") or entry.get("evidence_side")),
+                "priority": priority,
+                "review_type": review_type,
+                "reasons": [str(reason.get("label") or "") for reason in reasons[:3]],
+                "ml_impact": _select_primary_ml_impact(entry),
+                "summary": _build_review_summary(entry, review_type),
+                "score": total_score,
+                "negative_score": negative_score,
+                "positive_score": positive_score,
+            }
+        )
+
+    prioritized_rounds.sort(
+        key=lambda item: (
+            _REVIEW_TYPE_ORDER.get(str(item.get("review_type") or ""), len(_REVIEW_TYPE_ORDER)),
+            -int(item.get("negative_score") or 0),
+            -int(item.get("positive_score") or 0),
+            -int(item.get("score") or 0),
+            int(item.get("round_num") or 0),
+        )
+    )
+
+    return [
+        {
+            "round_num": item["round_num"],
+            "side": item["side"],
+            "priority": item["priority"],
+            "review_type": item["review_type"],
+            "reasons": item["reasons"],
+            "ml_impact": item["ml_impact"],
+            "summary": item["summary"],
+        }
+        for item in prioritized_rounds[: min(top_n, 5)]
+    ]
+
+
 def build_match_report(analysis: dict[str, Any]) -> dict[str, Any]:
     safe_analysis = _safe_dict(analysis)
 
@@ -202,6 +691,7 @@ def build_match_report(analysis: dict[str, Any]) -> dict[str, Any]:
     feedback_raw = safe_analysis.get("feedback")
     feedback = feedback_raw if isinstance(feedback_raw, list) else []
     player_ml_impact = safe_analysis.get("player_ml_impact")
+    selected_timeline_events = _safe_rows(safe_analysis.get("selected_player_timeline_events"))
     selected_impact_by_side = _safe_dict(safe_analysis.get("selected_player_impact_by_side"))
     selected_impact_ct = _safe_dict(selected_impact_by_side.get("CT"))
     selected_impact_t = _safe_dict(selected_impact_by_side.get("T"))
@@ -288,6 +778,7 @@ def build_match_report(analysis: dict[str, Any]) -> dict[str, Any]:
             "metric_details": benchmark_meta.get("metric_details"),
         },
         "feedback": feedback,
+        "selected_player_timeline_events": selected_timeline_events,
         "meta": {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "report_version": 1,
@@ -298,6 +789,9 @@ def build_match_report(analysis: dict[str, Any]) -> dict[str, Any]:
         report["ml_impact"] = player_ml_impact
 
     report["benchmarks"]["status"] = _benchmark_status(_safe_dict(report.get("benchmarks")))
+    vod_review_priority = build_vod_review_priority(report)
+    if vod_review_priority:
+        report["vod_review_priority"] = vod_review_priority
     return report
 
 
@@ -319,6 +813,12 @@ def format_report_text(report: dict[str, Any]) -> str:
     feedback = feedback_raw if isinstance(feedback_raw, list) else []
     ml_impact_raw = safe_report.get("ml_impact")
     ml_impact = ml_impact_raw if isinstance(ml_impact_raw, dict) else None
+    vod_review_priority_raw = safe_report.get("vod_review_priority")
+    vod_review_priority = (
+        [item for item in vod_review_priority_raw if isinstance(item, dict)]
+        if isinstance(vod_review_priority_raw, list)
+        else []
+    )
 
     lines: list[str] = []
     lines.append("CS2 COACH REPORT")
@@ -499,5 +999,22 @@ def format_report_text(report: dict[str, Any]) -> str:
             lines.pop()
     else:
         lines.append("No feedback tips generated yet.")
+
+    if vod_review_priority:
+        lines.append("")
+        lines.append("VOD REVIEW PRIORITY")
+        for index, item in enumerate(vod_review_priority[:5], start=1):
+            round_num = _format_number(item.get("round_num"), digits=0)
+            side = _safe_text(item.get("side"))
+            priority = _safe_text(item.get("priority")).lower()
+            review_type = _safe_text(item.get("review_type")).lower()
+            reasons_raw = item.get("reasons")
+            reasons = [str(reason).strip() for reason in reasons_raw if str(reason).strip()] if isinstance(reasons_raw, list) else []
+            summary = _safe_text(item.get("summary"))
+
+            lines.append(f"{index}. Round {round_num} | {side} | {priority} | {review_type}")
+            if reasons:
+                lines.append(f"   Reasons: {', '.join(reasons[:3])}")
+            lines.append(f"   Summary: {summary}")
 
     return "\n".join(lines)
