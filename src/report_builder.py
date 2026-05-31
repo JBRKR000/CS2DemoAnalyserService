@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 import re
 from typing import Any
 
+from sectors.decision_simulator import simulate_decisions
+
 
 def _safe_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
@@ -792,6 +794,15 @@ def build_match_report(analysis: dict[str, Any]) -> dict[str, Any]:
     vod_review_priority = build_vod_review_priority(report)
     if vod_review_priority:
         report["vod_review_priority"] = vod_review_priority
+        analysis["vod_review_priority"] = vod_review_priority
+        decision_simulation = simulate_decisions(
+            report_data=report,
+            vod_review_priority=vod_review_priority,
+            player_ml_impact=player_ml_impact if isinstance(player_ml_impact, dict) else None,
+        )
+        if decision_simulation:
+            report["decision_simulation"] = decision_simulation
+            analysis["decision_simulation"] = decision_simulation
     return report
 
 
@@ -1016,5 +1027,30 @@ def format_report_text(report: dict[str, Any]) -> str:
             if reasons:
                 lines.append(f"   Reasons: {', '.join(reasons[:3])}")
             lines.append(f"   Summary: {summary}")
+
+    decision_simulation = safe_report.get("decision_simulation")
+    if isinstance(decision_simulation, list) and decision_simulation:
+        lines.append("")
+        lines.append("DECISION SIMULATION (MVP)")
+        for idx, sim in enumerate(decision_simulation[:3], start=1):
+            sim_round = _format_number(sim.get("round_num"), digits=0)
+            sim_side = _safe_text(sim.get("side"))
+            actual = sim.get("actual_decision") if isinstance(sim.get("actual_decision"), dict) else {}
+            summary = _safe_text(sim.get("original_summary"))
+            actual_score = actual.get("score", 0)
+            actual_score_str = f"{actual_score:+.2f}" if isinstance(actual_score, (int, float)) else "-"
+            alternatives = sim.get("alternatives") if isinstance(sim.get("alternatives"), list) else []
+
+            lines.append(f"{idx}. Round {sim_round} | {sim_side}")
+            lines.append(f"   Actual: {summary} | score {actual_score_str}")
+            if alternatives:
+                lines.append("   Better alternatives:")
+                for alt in alternatives[:3]:
+                    alt_label = _safe_text(alt.get("label"))
+                    alt_score = alt.get("score", 0)
+                    alt_score_str = f"{alt_score:+.2f}" if isinstance(alt_score, (int, float)) else "-"
+                    alt_reasons = alt.get("reasons") if isinstance(alt.get("reasons"), list) else []
+                    alt_reason = str(alt_reasons[0]).strip() if alt_reasons else ""
+                    lines.append(f"   - {alt_label} | score {alt_score_str} | {alt_reason}")
 
     return "\n".join(lines)
