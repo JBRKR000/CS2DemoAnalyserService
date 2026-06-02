@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 import re
 from typing import Any
 
-from sectors.decision_simulator import simulate_decisions
+from sectors.death_risk import find_player_pre_event_death_risk, load_death_risk_predictions
+from sectors.decision_simulator import simulate_decisions, build_death_risk_explanation
 
 
 def _safe_dict(value: Any) -> dict[str, Any]:
@@ -37,6 +38,112 @@ def _format_pp_per_event(value: Any, digits: int = 2) -> str:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return f"{float(value) * 100.0:+.{digits}f} pp per event"
     return "-"
+
+
+def _format_rounded_int(value: Any) -> str:
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, (int, float)):
+        return str(int(round(float(value))))
+    return "-"
+
+
+def _is_numeric_like_weapon(value: Any) -> bool:
+    if isinstance(value, bool) or value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return True
+
+    text = str(value).strip()
+    if not text:
+        return False
+    if text.isdigit():
+        return True
+
+    stripped = text.replace("_", "").replace("-", "").replace(" ", "")
+    return bool(stripped) and stripped.isdigit()
+
+
+def _weapon_from_summary(summary: Any) -> str | None:
+    text = str(summary or "").strip()
+    if not text:
+        return None
+
+    match = re.search(r"\bwith\s+([A-Za-z0-9][A-Za-z0-9_\-]*)\b", text, re.IGNORECASE)
+    if not match:
+        return None
+
+    weapon = match.group(1).strip()
+    if weapon and not _is_numeric_like_weapon(weapon):
+        return weapon
+    return None
+
+
+def format_risk_weapon(risk_context: dict[str, Any], candidate: dict[str, Any] | None = None) -> str:
+    context = risk_context if isinstance(risk_context, dict) else {}
+    candidate_data = candidate if isinstance(candidate, dict) else {}
+
+    weapon_name = str(context.get("weapon_name") or "").strip()
+    if weapon_name and not _is_numeric_like_weapon(weapon_name):
+        return weapon_name
+
+    weapon_value = context.get("weapon")
+    if isinstance(weapon_value, str):
+        weapon_text = weapon_value.strip()
+        if weapon_text and not _is_numeric_like_weapon(weapon_text):
+            return weapon_text
+    elif isinstance(weapon_value, (int, float)):
+        weapon_id = int(round(float(weapon_value)))
+    else:
+        weapon_id = None
+
+    summary_weapon = _weapon_from_summary(candidate_data.get("summary"))
+    if summary_weapon:
+        return summary_weapon
+
+    for field_name in ("death_risk_event_weapon", "event_weapon", "death_weapon", "weapon"):
+        field_value = candidate_data.get(field_name)
+        if isinstance(field_value, str):
+            field_text = field_value.strip()
+            if field_text and not _is_numeric_like_weapon(field_text):
+                return field_text
+        elif isinstance(field_value, (int, float)):
+            weapon_id = int(round(float(field_value)))
+
+    if weapon_value is not None and _is_numeric_like_weapon(weapon_value):
+        return f"unknown_weapon_{int(round(float(weapon_value)))}"
+
+    if weapon_id is not None:
+        return f"unknown_weapon_{weapon_id}"
+
+    return "unknown"
+
+
+if __debug__:
+    _risk_weapon_test_context = {"weapon": "5767522"}
+    _risk_weapon_test_candidate = {"summary": "died to phzy with m4a1 in a high-cost ML swing."}
+    assert format_risk_weapon(_risk_weapon_test_context, _risk_weapon_test_candidate) == "m4a1"
+
+
+def _format_risk_before_death_line(item: dict[str, Any]) -> str | None:
+    label = _safe_text(item.get("death_risk_label"), "")
+    if not label or label == "-":
+        return None
+
+    probability = item.get("death_risk_5s")
+    bucket = _safe_text(item.get("death_risk_bucket"), "-")
+    context = item.get("death_risk_context")
+    context_dict = context if isinstance(context, dict) else {}
+    nearest_enemy = _format_rounded_int(context_dict.get("nearest_enemy_distance"))
+    nearest_teammate = _format_rounded_int(context_dict.get("nearest_teammate_distance"))
+    player_hp = _format_rounded_int(context_dict.get("player_hp"))
+    weapon = format_risk_weapon(context_dict, item)
+    probability_text = f"{float(probability) * 100.0:.1f}%" if isinstance(probability, (int, float)) else "-"
+
+    return (
+        f"{label}, {probability_text}, {bucket}, "
+        f"enemy {nearest_enemy}u, teammate {nearest_teammate}u, hp {player_hp}, weapon {weapon}"
+    )
 
 
 def _format_event_pp(value: Any, digits: int = 2) -> str:
@@ -285,6 +392,39 @@ def _ml_reason_weight(value: float, polarity: str) -> int:
     return 0
 
 
+def _death_risk_reason(risk_label: Any, risk_bucket: Any) -> tuple[float, str | None, int]:
+    label = str(risk_label or "").strip().lower()
+    bucket = str(risk_bucket or "").strip().lower()
+
+    boost = 0.0
+    reason_label: str | None = None
+    display_weight = 0
+
+    if label == "critical":
+        boost += 3.0
+        reason_label = "critical death risk before death"
+        display_weight = 4
+    elif label == "high":
+        boost += 2.0
+        reason_label = "high death risk before death"
+        display_weight = 3
+    elif label == "medium":
+        boost += 1.0
+        reason_label = "medium death risk before death"
+        display_weight = 2
+
+    if bucket == "top_1_percent":
+        boost += 2.0
+    elif bucket == "top_5_percent":
+        boost += 1.5
+    elif bucket == "top_10_percent":
+        boost += 1.0
+    elif bucket == "top_20_percent":
+        boost += 0.5
+
+    return min(boost, 4.0), reason_label, display_weight
+
+
 def _new_review_round(round_num: int) -> dict[str, Any]:
     return {
         "round_num": round_num,
@@ -462,12 +602,18 @@ def build_vod_review_priority(report_data: dict[str, Any], top_n: int = 5) -> li
         return []
 
     safe_report = _safe_dict(report_data)
+    match = _safe_dict(safe_report.get("match"))
+    player = _safe_dict(safe_report.get("player"))
     feedback = [tip for tip in safe_report.get("feedback", []) if isinstance(tip, dict)]
     timeline_events = _safe_rows(safe_report.get("selected_player_timeline_events"))
     ml_impact = _safe_dict(safe_report.get("ml_impact"))
+    match_id = _safe_text(match.get("match_id"), "")
+    player_steamid = _safe_text(player.get("steamid"), "")
 
     if not feedback and not timeline_events and not ml_impact:
         return []
+
+    death_risk_predictions = load_death_risk_predictions()
 
     candidates: dict[int, dict[str, Any]] = {}
 
@@ -562,6 +708,73 @@ def build_vod_review_priority(report_data: dict[str, Any], top_n: int = 5) -> li
         if _safe_bool(row.get("is_opening")):
             _add_round_reason(entry, "strong opening duel", "positive", 3)
 
+    if death_risk_predictions is not None and match_id and player_steamid:
+        for entry in candidates.values():
+            round_num = _safe_round_num(entry.get("round_num"))
+            if round_num <= 0:
+                continue
+
+            event_tick = 0
+            for candidate_row_key in ("death_row", "negative_ml_row", "opening_kill_row"):
+                candidate_row = entry.get(candidate_row_key)
+                if isinstance(candidate_row, dict):
+                    event_tick = _round_tick(candidate_row)
+                    if event_tick > 0:
+                        break
+
+            risk_snapshot = find_player_pre_event_death_risk(
+                death_risk_predictions,
+                match_id=match_id,
+                steamid=player_steamid,
+                round_num=round_num,
+                event_tick=event_tick if event_tick > 0 else None,
+            )
+            if risk_snapshot is None:
+                continue
+
+            entry["death_risk_5s"] = risk_snapshot.get("max_death_risk_5s")
+            entry["death_risk_label"] = risk_snapshot.get("max_risk_label")
+            entry["death_risk_bucket"] = risk_snapshot.get("max_risk_bucket")
+            entry["death_risk_snapshot_tick"] = risk_snapshot.get("risk_snapshot_tick")
+            entry["death_risk_context"] = {
+                "nearest_enemy_distance": risk_snapshot.get("nearest_enemy_distance_at_max_risk"),
+                "nearest_teammate_distance": risk_snapshot.get("nearest_teammate_distance_at_max_risk"),
+                "player_hp": risk_snapshot.get("player_hp_at_max_risk"),
+                "weapon": risk_snapshot.get("weapon_at_max_risk"),
+                "weapon_name": risk_snapshot.get("weapon_name"),
+            }
+
+            event_weapon = None
+            for candidate_row_key in ("death_row", "negative_ml_row", "opening_kill_row"):
+                candidate_row = entry.get(candidate_row_key)
+                if isinstance(candidate_row, dict):
+                    candidate_weapon = candidate_row.get("weapon")
+                    if isinstance(candidate_weapon, str) and candidate_weapon.strip():
+                        event_weapon = candidate_weapon.strip()
+                        break
+                    if isinstance(candidate_weapon, (int, float)):
+                        event_weapon = str(int(round(float(candidate_weapon))))
+                        break
+
+            if event_weapon is not None:
+                entry["death_risk_event_weapon"] = event_weapon
+
+            death_risk_boost, death_risk_reason, death_risk_reason_weight = _death_risk_reason(
+                risk_snapshot.get("max_risk_label"),
+                risk_snapshot.get("max_risk_bucket"),
+            )
+            if death_risk_boost > 0.0:
+                current_boost = _to_float(entry.get("death_risk_boost"), 0.0)
+                entry["death_risk_boost"] = max(current_boost, death_risk_boost)
+
+            if death_risk_reason:
+                _add_round_reason(entry, death_risk_reason, "negative", death_risk_reason_weight)
+                reason_map = entry.get("reason_map")
+                if isinstance(reason_map, dict):
+                    risk_reason_entry = reason_map.get(death_risk_reason)
+                    if isinstance(risk_reason_entry, dict):
+                        risk_reason_entry["source"] = "death_risk"
+
     prioritized_rounds: list[dict[str, Any]] = []
     for entry in candidates.values():
         kill_rows = entry.get("kill_rows") or []
@@ -572,36 +785,60 @@ def build_vod_review_priority(report_data: dict[str, Any], top_n: int = 5) -> li
                 _add_round_reason(entry, "high-impact multi-kill round", "positive", 2)
 
         reasons = [reason for reason in entry.get("reason_map", {}).values() if isinstance(reason, dict)]
-        if not reasons:
+        death_risk_boost = _to_float(entry.get("death_risk_boost"), 0.0)
+        if not reasons and death_risk_boost <= 0.0:
             continue
 
         negative_score = sum(
             int(reason.get("weight") or 0)
             for reason in reasons
-            if str(reason.get("polarity") or "") == "negative"
+            if str(reason.get("polarity") or "") == "negative" and str(reason.get("source") or "") != "death_risk"
         )
         positive_score = sum(
             int(reason.get("weight") or 0)
             for reason in reasons
             if str(reason.get("polarity") or "") == "positive"
         )
-        if negative_score <= 0 and positive_score <= 0:
+        combined_negative_score = negative_score + death_risk_boost
+        if combined_negative_score <= 0 and positive_score <= 0:
             continue
 
-        if negative_score > 0 and positive_score > 0:
+        if combined_negative_score > 0 and positive_score > 0:
             review_type = "mixed"
-        elif negative_score > 0:
+        elif combined_negative_score > 0:
             review_type = "mistake"
         else:
             review_type = "strength"
 
-        total_score = negative_score + positive_score
-        if total_score >= 9 or negative_score >= 8 or positive_score >= 8:
+        total_score = combined_negative_score + positive_score
+        if total_score >= 9 or combined_negative_score >= 8 or positive_score >= 8:
             priority = "high"
-        elif total_score >= 5 or negative_score >= 4 or positive_score >= 4:
+        elif total_score >= 5 or combined_negative_score >= 4 or positive_score >= 4:
             priority = "medium"
         else:
             priority = "low"
+
+        # Enforce minimum priority based on death risk ML signals.
+        # Do not lower an existing priority — only raise it when ML indicates elevated risk.
+        try:
+            dr_label = str(entry.get("death_risk_label") or "").strip().lower()
+            dr_bucket = str(entry.get("death_risk_bucket") or "").strip().lower()
+        except Exception:
+            dr_label = ""
+            dr_bucket = ""
+
+        min_priority = None
+        if dr_label == "critical" or dr_bucket == "top_1_percent":
+            min_priority = "high"
+        elif dr_label == "high" or dr_bucket in {"top_5_percent", "top_10_percent"}:
+            min_priority = "medium"
+
+        if min_priority is not None:
+            _order = {"low": 0, "medium": 1, "high": 2}
+            current_rank = _order.get(str(priority) if priority is not None else "low", 0)
+            min_rank = _order.get(min_priority, 0)
+            if current_rank < min_rank:
+                priority = min_priority
 
         if review_type == "strength":
             reasons.sort(
@@ -630,17 +867,22 @@ def build_vod_review_priority(report_data: dict[str, Any], top_n: int = 5) -> li
                 "ml_impact": _select_primary_ml_impact(entry),
                 "summary": _build_review_summary(entry, review_type),
                 "score": total_score,
-                "negative_score": negative_score,
+                "negative_score": combined_negative_score,
                 "positive_score": positive_score,
+                "death_risk_5s": entry.get("death_risk_5s"),
+                "death_risk_label": entry.get("death_risk_label"),
+                "death_risk_bucket": entry.get("death_risk_bucket"),
+                "death_risk_snapshot_tick": entry.get("death_risk_snapshot_tick"),
+                "death_risk_context": entry.get("death_risk_context"),
             }
         )
 
     prioritized_rounds.sort(
         key=lambda item: (
             _REVIEW_TYPE_ORDER.get(str(item.get("review_type") or ""), len(_REVIEW_TYPE_ORDER)),
-            -int(item.get("negative_score") or 0),
-            -int(item.get("positive_score") or 0),
-            -int(item.get("score") or 0),
+            -_to_float(item.get("negative_score"), 0.0),
+            -_to_float(item.get("positive_score"), 0.0),
+            -_to_float(item.get("score"), 0.0),
             int(item.get("round_num") or 0),
         )
     )
@@ -654,6 +896,12 @@ def build_vod_review_priority(report_data: dict[str, Any], top_n: int = 5) -> li
             "reasons": item["reasons"],
             "ml_impact": item["ml_impact"],
             "summary": item["summary"],
+            "death_risk_5s": item.get("death_risk_5s"),
+            "death_risk_label": item.get("death_risk_label"),
+            "death_risk_bucket": item.get("death_risk_bucket"),
+            "death_risk_snapshot_tick": item.get("death_risk_snapshot_tick"),
+            "death_risk_context": item.get("death_risk_context"),
+                "death_risk_event_weapon": item.get("death_risk_event_weapon"),
         }
         for item in prioritized_rounds[: min(top_n, 5)]
     ]
@@ -830,6 +1078,26 @@ def format_report_text(report: dict[str, Any]) -> str:
         if isinstance(vod_review_priority_raw, list)
         else []
     )
+
+    def _format_death_risk_line(item: dict[str, Any]) -> str | None:
+        label = _safe_text(item.get("death_risk_label"), "")
+        if label == "-":
+            return None
+
+        probability = item.get("death_risk_5s")
+        bucket = _safe_text(item.get("death_risk_bucket"), "-")
+        context = item.get("death_risk_context")
+        context_dict = context if isinstance(context, dict) else {}
+        nearest_enemy = _format_rounded_int(context_dict.get("nearest_enemy_distance"))
+        nearest_teammate = _format_rounded_int(context_dict.get("nearest_teammate_distance"))
+        player_hp = _format_rounded_int(context_dict.get("player_hp"))
+        weapon = format_risk_weapon(context_dict, item)
+        probability_text = f"{float(probability) * 100.0:.1f}%" if isinstance(probability, (int, float)) else "-"
+
+        return (
+            f"{label}, {probability_text}, {bucket}, "
+            f"enemy {nearest_enemy}u, teammate {nearest_teammate}u, hp {player_hp}, weapon {weapon}"
+        )
 
     lines: list[str] = []
     lines.append("CS2 COACH REPORT")
@@ -1026,6 +1294,15 @@ def format_report_text(report: dict[str, Any]) -> str:
             lines.append(f"{index}. Round {round_num} | {side} | {priority} | {review_type}")
             if reasons:
                 lines.append(f"   Reasons: {', '.join(reasons[:3])}")
+            risk_line = _format_death_risk_line(item)
+            if risk_line:
+                lines.append(f"   Risk before death: {risk_line}")
+                # add a short explanation why model marked this as risky
+                context = item.get("death_risk_context") if isinstance(item.get("death_risk_context"), dict) else {}
+                dr_label = item.get("death_risk_label")
+                explanation = build_death_risk_explanation(context, dr_label)
+                if explanation:
+                    lines.append(f"   Risk explanation: {explanation}")
             lines.append(f"   Summary: {summary}")
 
     decision_simulation = safe_report.get("decision_simulation")
@@ -1036,7 +1313,8 @@ def format_report_text(report: dict[str, Any]) -> str:
             sim_round = _format_number(sim.get("round_num"), digits=0)
             sim_side = _safe_text(sim.get("side"))
             actual = sim.get("actual_decision") if isinstance(sim.get("actual_decision"), dict) else {}
-            summary = _safe_text(sim.get("original_summary"))
+            # prefer the simulation's rendered actual summary (fallback to original)
+            summary = _safe_text(sim.get("actual_summary") or sim.get("original_summary"))
             actual_score = actual.get("score", 0)
             actual_score_str = f"{actual_score:+.2f}" if isinstance(actual_score, (int, float)) else "-"
             alternatives = sim.get("alternatives") if isinstance(sim.get("alternatives"), list) else []
