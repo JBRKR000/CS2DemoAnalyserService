@@ -7,3 +7,10 @@ __pycache__/
 *.demS
 *.pkl
 *.dem
+*.json
+*.parquet
+*.txt
+data/ml/round_snapshots.parquet
+data/ml/round_win_lgbm_feature_importance.json
+data/ml/round_win_lgbm_metrics.json
+src/benchmarks/local_benchmarks.json
