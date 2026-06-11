@@ -1,467 +1,681 @@
-# CS2 Demo Analyser & Coach
+# CS2 Demo Coach
 
-A private Counter-Strike 2 demo analysis and coaching tool built in Python.
+![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
+![Status](https://img.shields.io/badge/status-Coach%20MVP-green)
+![Release](https://img.shields.io/badge/release-v1.0.0--coach--mvp-purple)
+![ML](https://img.shields.io/badge/ML-LightGBM-orange)
+![Game](https://img.shields.io/badge/game-CS2-yellow)
 
-The project parses CS2 demos, extracts player performance metrics, compares them against a local benchmark pool, estimates event impact with a machine learning model, and generates an actionable post-match coaching report.
+CS2 Demo Coach is a post-match analysis tool for Counter-Strike 2 demos. It takes a parsed demo, focuses on one selected player, and turns the match into a practical coaching report with stats, benchmarks, ML-based impact estimates, VOD review priorities, death-risk context, and suggested decision alternatives.
 
-The goal is not only to show raw statistics, but to explain what happened, why it mattered, and which rounds should be reviewed first.
+Current release: `v1.0.0-coach-mvp`
+
+The idea is simple: instead of only showing numbers, the tool tries to answer the questions a player or coach would actually ask after a match:
+
+```text
+What went wrong?
+Where did it happen?
+Why did it matter?
+Was the player already in danger?
+What could have been done instead?
+What should be practiced next?
+```
+
+A typical report flow looks like this:
+
+```text
+demo/cache
+→ player stats
+→ benchmark comparison
+→ feedback tips
+→ ML impact scoring
+→ VOD review queue
+→ death-risk context
+→ decision suggestions
+→ coach summary
+→ structured JSON export
+```
 
 ---
 
-## Features
+## Preview
 
-### Demo parsing and cache
-
-- Parses CS2 `.dem` files with `awpy` / `demoparser2`.
-- Stores parsed demos in a local `.cache/` directory.
-- Uses SHA-256 based cache keys / match IDs for reproducibility.
-- Supports re-running analysis from cached demos without re-parsing the original demo.
-
-### Player-level report
-
-The analyser generates a detailed player report with:
-
-- K/D/A
-- KPR and DPR
-- ADR
-- KAST
-- Headshot percentage
-- Opening duel stats
-- Trade kills
-- Untraded deaths
-- Damage before death
-- Death timing: early / mid / late
-- Economy summary
-- Clutch summary
-- CT/T side breakdown
-
-### Local benchmark system
-
-The project builds a local benchmark pool from previously analysed matches.
-
-Benchmarks can compare a selected player against contextual pools such as:
-
-- map + side
-- side fallback
-- global fallback
-
-The report displays benchmark context per metric, so the user can see exactly which pool was used.
-
-Example:
+### Coach Summary
 
 ```text
-BENCHMARKS
-Status: available
-Context: mixed
-Metrics evaluated: 7
+COACH SUMMARY
+Main weakness:
+- Headshot consistency is below the benchmark pool.
 
-Benchmark pools:
-- adr: map+side, samples=50
-- hs_percent: map+side, samples=50
-- full_buy_win_rate: side, samples=127
-- clutch_win_rate: unavailable, reason=not_enough_player_samples
+Best strength:
+- Round survival/trade value is strong compared with the benchmark pool.
+
+Top VOD focus:
+- Round 18: zero-damage death, -37.99 pp ML impact, high death risk
+
+Decision pattern:
+- You often take fights where backing off would preserve round equity.
+
+Practice focus:
+- Run 10 minutes of head-height pathing and first-bullet discipline.
 ```
-
-Benchmark-based feedback can identify strengths and weaknesses such as:
-
-- low headshot percentage compared with the local pool
-- strong ADR / damage impact
-- weak clutch conversion
-- strong KAST / round presence
-- weak opening duel conversion
-
-### ML round impact model
-
-The project includes an experimental machine learning layer that estimates round win probability from event-based snapshots.
-
-Current ML flow:
-
-```text
-cached demos
--> round snapshot dataset
--> LightGBM round win probability model
--> before/after event predictions
--> win probability delta
--> player-level ML impact summary
-```
-
-The ML layer estimates how much a kill or death changed the selected player's team's chance of winning the round.
-
-Example:
-
-```text
-Round 18 | CT | died to phzy with m4a1 | -38.0 pp
-Round 10 | T | killed phzy with awp | +43.2 pp
-```
-
-### ML impact report section
-
-The report includes an experimental ML impact section with:
-
-- kill impact score
-- death impact score
-- net ML impact
-- average kill impact
-- average death impact
-- best kills
-- worst deaths
-- low-impact kills
-- excluded contexts such as teamkills and world deaths
-
-### Evidence-based coaching tips
-
-Feedback tips include concrete examples from the match instead of only generic advice.
-
-Example:
-
-```text
-[WARNING] Too many untraded deaths
-7/11 deaths were untraded (63.6%). You often die outside trade range or take isolated duels.
-Examples:
-- Round 18 | CT | died to phzy with m4a1 | mid | -38.0 pp
-- Round 5 | T | died to HooXi with fiveseven | late | -31.3 pp
-```
-
-Supported evidence examples currently include:
-
-- untraded deaths
-- zero-damage deaths
-- low-damage deaths
-- low headshot percentage examples
-- high-impact kills from ML impact
-- costly deaths from ML impact
 
 ### VOD Review Priority
-
-The report ends with a compact VOD review queue that selects the most important rounds to watch first.
-
-Example:
 
 ```text
 VOD REVIEW PRIORITY
 1. Round 18 | CT | high | mistake
    Reasons: zero-damage death, -37.99 pp ML impact, untraded death
+   Risk before death: high, 18.6%, top_10_percent, enemy 475u, teammate 334u, hp 100, weapon m4a1
+   Risk explanation: enemy close
    Summary: died to phzy with m4a1 in a high-cost ML swing.
-
-2. Round 5 | T | high | mistake
-   Reasons: -31.25 pp ML impact, untraded death
-   Summary: died to HooXi with fiveseven in a high-cost ML swing.
 ```
 
-This makes the report useful for actual demo review sessions, not only stat inspection.
-
----
-
-## Tech stack
-
-- Python
-- Polars
-- pandas
-- LightGBM
-- awpy
-- demoparser2
-- colorlog
-- pyarrow
-
----
-
-## Project structure
+### Decision Simulation
 
 ```text
-src/
-├── main.py                         # CLI entrypoint
-├── Parser.py                       # demo parsing, cache handling, match IDs
-├── Analyser.py                     # main analysis orchestration
-├── coach_metrics.py                # raw player metrics
-├── report_builder.py               # text report, tips, VOD priority formatting
-├── benchmarks.py                   # local benchmark storage and percentile evaluation
-├── backfill_benchmarks.py          # builds benchmark pool from cached demos
-├── parse_demos_to_cache.py         # batch parse demos into cache
-├── sectors/
-│   ├── overall.py                  # player selection and overall stats
-│   ├── economy.py                  # economy-related stats
-│   ├── clutch.py                   # clutch stats
-│   ├── round_timeline.py           # timeline and impact events
-│   ├── feedback.py                 # coaching tips and evidence examples
-│   ├── ml_impact.py                # event-level ML delta calculation
-│   └── player_ml_impact.py         # player-level ML impact summary
-└── ml/
-    ├── build_dataset.py            # builds round snapshot dataset
-    ├── dataset.py                  # dataset construction helpers
-    ├── features.py                 # feature extraction for ML snapshots
-    ├── train_lgbm.py               # LightGBM training script
-    ├── predict.py                  # round win probability prediction
-    ├── evaluate_impact.py          # builds ML event impact parquet
-    ├── evaluate_player_impact.py   # player-level ML impact CLI
-    ├── audit_impact.py             # CT/T symmetry and impact sanity checks
-    └── inspect_dataset.py          # dataset inspection utility
+DECISION SIMULATION (MVP)
+1. Round 18 | CT
+   Actual: died to phzy with m4a1 in a high-cost ML swing.
+   Risk before death: high, 18.6% (enemy close) | score -1.08
+
+   Better alternatives:
+   - fall_back | score +0.75 | safer after zero-damage high-cost death
+   - wait_for_trade | score +0.65 | keeps trade possibility alive
+   - hold_angle | score +0.25 | reduces isolation risk
+```
+
+---
+
+## What this project does
+
+CS2 Demo Coach analyses one selected player from a CS2 demo and generates a report that is useful for review, not just stat tracking.
+
+It currently covers:
+
+- overall player stats
+- CT/T side breakdown
+- economy and clutch summaries
+- local benchmark comparison
+- percentile-based feedback
+- evidence-backed examples
+- experimental ML impact scoring
+- VOD review priority ranking
+- 5-second death-risk estimation
+- compact explanations for risky situations
+- MVP decision suggestions
+- coach summary generation
+- structured JSON export for future API or frontend use
+
+The coaching angle is the important part. The report is meant to point to specific rounds, deaths, and decisions that are worth reviewing.
+
+---
+
+## Current status
+
+The project is currently at:
+
+```text
+v1.0.0-coach-mvp
+```
+
+Working end-to-end:
+
+- demo parsing and cache loading
+- player selection
+- player-level text report
+- CT/T side breakdown
+- impact, economy, and clutch analysis
+- local benchmark pool
+- benchmark-based feedback
+- ML event impact
+- VOD review priority
+- 5-second death-risk estimation
+- risk explanation layer
+- risk-aware decision simulation
+- Coach Summary v1
+- structured report dictionary
+- structured JSON report export
+- structured report validation
+
+Still experimental:
+
+- ML impact interpretation
+- decision simulation
+- benchmark quality, since it depends on the size and quality of the local benchmark pool
+- no web/API layer yet
+- no long-term personalized player calibration yet
+
+---
+
+## A note on the ML layer
+
+The ML layer should be treated as a **pro-baseline risk and impact model**.
+
+In other words, it is useful for review and prioritization, but it is not claiming to be a perfect personalized decision engine. Right now it is best used to support:
+
+- VOD prioritization
+- risk-aware coaching
+- round impact explanation
+- post-match review
+- structured report generation
+
+The decision simulation is also still MVP-level. It uses signals such as risk, ML impact, untraded deaths, zero-damage deaths, and VOD context to suggest safer alternatives, including:
+
+- `fall_back`
+- `wait_for_trade`
+- `hold_angle`
+- `reposition`
+- `play_time`
+
+Treat those suggestions as coaching prompts, not absolute truth.
+
+---
+
+## Report sections
+
+A generated text report includes:
+
+```text
+CS2 COACH REPORT
+├── OVERALL
+├── IMPACT
+├── SIDE BREAKDOWN
+├── ECONOMY
+├── CLUTCH
+├── BENCHMARKS
+├── ML IMPACT
+├── TOP TIPS
+├── VOD REVIEW PRIORITY
+├── DECISION SIMULATION
+└── COACH SUMMARY
+```
+
+---
+
+## Structured JSON report
+
+Alongside the text report, the project exports a structured JSON report. This is mainly intended for a future API, dashboard, or frontend.
+
+Top-level schema:
+
+```json
+{
+  "meta": {},
+  "player": {},
+  "overall": {},
+  "impact": {},
+  "side_breakdown": {},
+  "economy": {},
+  "clutch": {},
+  "benchmarks": {},
+  "ml_impact": {},
+  "tips": [],
+  "vod_review_priority": [],
+  "decision_simulation": [],
+  "coach_summary": {}
+}
+```
+
+Example:
+
+```json
+{
+  "meta": {
+    "schema_version": "1.0",
+    "report_type": "cs2_coach_report",
+    "map_name": "de_ancient",
+    "match_id": "b3501fa08fdf8b8000737715162434eb95464320e710a381e2e2c25241705822",
+    "generated_at": "2026-06-11T21:13:27.969110+00:00"
+  },
+  "player": {
+    "steamid": 76561198254686734,
+    "name": "hypex",
+    "start_side": "t",
+    "rounds_played": 21
+  },
+  "coach_summary": {
+    "main_weakness": "Headshot consistency is below the benchmark pool.",
+    "best_strength": "Round survival/trade value is strong compared with the benchmark pool.",
+    "top_vod_focus": "Round 18: zero-damage death, -37.99 pp ML impact, high death risk",
+    "decision_pattern": "You often take fights where backing off would preserve round equity.",
+    "practice_focus": "Run 10 minutes of head-height pathing and first-bullet discipline."
+  }
+}
+```
+
+Reports are written to:
+
+```text
+data/reports/<match_id>_<steamid>_structured_report.json
+```
+
+---
+
+## Example workflow
+
+```text
+1. Load a parsed demo from cache, or parse a new demo.
+2. Select the player to analyse.
+3. Build player stats and side breakdowns.
+4. Compare the player against local benchmarks.
+5. Generate feedback tips with supporting evidence.
+6. Estimate ML impact for kills and deaths.
+7. Rank the most useful VOD review moments.
+8. Add 5-second death-risk context.
+9. Generate risk-aware decision suggestions.
+10. Produce a short coach summary.
+11. Export the structured JSON report.
 ```
 
 ---
 
 ## Installation
 
-Create and activate a virtual environment:
+Clone the repository:
 
-```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
+```bash
+git clone https://github.com/JBRKR000/cs2-demo-coach.git
+cd cs2-demo-coach
 ```
 
-Install dependencies:
+Create a virtual environment:
 
-```powershell
-pip install -r src/requirements.txt
+```bash
+python -m venv .venv
 ```
 
-If you use the ML training and prediction scripts, make sure `lightgbm` is installed in your environment.
+Activate it on Windows:
+
+```powershell
+.venv\Scripts\activate
+```
+
+Or on Linux/macOS:
+
+```bash
+source .venv/bin/activate
+```
+
+Install the dependencies:
+
+```bash
+pip install -r requirements.txt
+```
 
 ---
 
-## Basic usage
+## Usage
 
-### 1. Add a CS2 demo
+Run the analyser from the `src` directory:
 
-Place a CS2 demo file in the project, for example:
-
-```text
-Demos/demo.dem
-```
-
-### 2. Run the analyser
-
-From the `src` directory:
-
-```powershell
+```bash
 cd src
 py main.py
 ```
 
-The CLI will show available players and ask which player should be analysed.
+Or, depending on your Python setup:
 
-### 3. Re-run from cache
+```bash
+python main.py
+```
 
-After a demo has been parsed once, the analyser can re-run from the cached match using:
+The CLI will list the available players from the loaded match:
 
 ```text
-last_cache_key.txt
-.cache/
+Available players for detailed analysis:
+idx | steamid           | name
+0   | 76561198310561479 | PR
+1   | 76561198005107817 | Staehr
+2   | 76561198408199043 | phzy
+3   | 76561198254686734 | hypex
+...
 ```
 
-This avoids re-parsing the original `.dem` file every time.
-
----
-
-## Benchmark workflow
-
-Benchmarks are local and are built from analysed / cached demos.
-
-To backfill benchmark samples from all cached matches:
-
-```powershell
-cd src
-py backfill_benchmarks.py
-```
-
-To force rebuild the benchmark registry:
-
-```powershell
-py backfill_benchmarks.py --force
-```
-
-The benchmark system stores data in:
+Select a player by index, SteamID, or name:
 
 ```text
-src/benchmarks/local_benchmarks.json
-src/benchmarks/analyzed_matches.json
+Select player [idx/steamid/name], Enter=0: 3
+```
+
+You should then see logs similar to:
+
+```text
+Structured report sections: meta, player, overall, impact, side_breakdown, economy, clutch, benchmarks, ml_impact, tips, vod_review_priority, decision_simulation, coach_summary
+Structured report valid | sections=13
+Structured report exported | path=data/reports/<match_id>_<steamid>_structured_report.json
 ```
 
 ---
 
-## ML workflow
+## Features
 
-### Build the dataset
+### Demo analysis
 
-```powershell
-cd src
-py ml/build_dataset.py
-```
+- cached demo loading
+- selected-player analysis
+- round count
+- map detection
+- player identity extraction
+- CT/T side handling
 
-Output:
+### Player statistics
 
-```text
-data/ml/round_snapshots.parquet
-```
+- kills
+- deaths
+- assists
+- KPR
+- DPR
+- ADR
+- KAST
+- headshot percentage
+- opening duel win percentage
+- trade kills
+- untraded deaths
+- zero-damage deaths
+- damage before death
+- death timing
 
-### Inspect the dataset
+### Economy analysis
 
-```powershell
-py ml/inspect_dataset.py
-```
+- full-buy win rate
+- force-buy win rate
+- eco kills
+- broken economy rounds
+- save rounds
 
-### Train the LightGBM model
+### Clutch analysis
 
-```powershell
-py ml/train_lgbm.py --seed 42 --n-trials 0
-```
+- total clutches
+- clutch wins
+- clutch win rate
+- 1v1 / 1v2 / 1v3+ breakdown
 
-Typical outputs:
+### Benchmarks
 
-```text
-models/round_win_lgbm.txt
-data/ml/round_win_lgbm_metrics.json
-data/ml/round_win_lgbm_feature_importance.json
-```
+The benchmark system compares the selected player against a local benchmark pool and assigns metric percentiles and labels.
 
-### Build ML event impact
-
-```powershell
-py ml/evaluate_impact.py
-```
-
-Outputs:
-
-```text
-data/ml/ml_event_impact.parquet
-data/ml/top_positive_events.json
-data/ml/top_negative_events.json
-```
-
-### Audit ML impact consistency
-
-```powershell
-py ml/audit_impact.py
-```
-
-The audit checks whether CT and T perspectives are approximately consistent for the same event.
-
-### Evaluate one player
-
-```powershell
-py ml/evaluate_player_impact.py --steamid <STEAM_ID> --top-n 10
-```
-
----
-
-## Example report sections
-
-### Benchmark-based feedback
+Example:
 
 ```text
-[CRITICAL] Headshot Consistency Is Well Below Benchmark
-hs_percent 17.65 is around the 4.0 percentile in your map+side pool.
+Metric     | Value     | Percentile | Rating
+ADR        | 105.00    | 68.0       | good
+KAST       | 85.72     | 90.0       | excellent
+KPR        | 0.81      | 80.0       | excellent
+HS%        | 17.65     | 4.0        | critical
+OPEN%      | 50.00     | 63.2       | good
+```
 
-Examples:
-- Round 14 | CT | killed jabbi with famas | non-HS | +5.4 pp
-- Round 2 | T | killed jabbi with glock | non-HS | +4.7 pp
+Where available, benchmark checks can also take map and side context into account.
+
+### Feedback tips
+
+Tips are generated from benchmark ratings and player-specific evidence.
+
+Example:
+
+```text
+[CRITICAL] Too many zero-impact deaths
+6 deaths came with zero damage, and 8 deaths were under 40 damage before dying.
+Take first contact with utility or teammate timing so you can create impact before going down.
 ```
 
 ### ML impact
 
+The project estimates event impact using an experimental round-win probability model.
+
+Example:
+
 ```text
-ML IMPACT (EXPERIMENTAL)
-Kills: 17
-Deaths: 11
-Net impact score: +0.719 impact score
-Kill impact score: +2.749 impact score
-Death impact score: -2.030 impact score
-Average kill impact: +16.17 pp per event
-Average death impact: -18.46 pp per event
+Best kills:
+- Round 10 | T | hypex killed phzy with awp | +43.23 pp
+- Round 8 | T | hypex killed ryu with awp | +42.40 pp
+
+Worst deaths:
+- Round 18 | CT | phzy killed hypex with m4a1 | -37.99 pp
+- Round 5 | T | HooXi killed hypex with fiveseven | -31.25 pp
 ```
 
-### VOD review priority
+### VOD Review Priority
+
+The VOD priority system ranks moments that are likely to be worth reviewing first.
+
+It looks at signals such as:
+
+- zero-damage deaths
+- untraded deaths
+- negative ML impact
+- high death risk
+- failed clutch context
+- positive round-swinging kills
+- mixed event patterns
+
+Example:
 
 ```text
-VOD REVIEW PRIORITY
 1. Round 18 | CT | high | mistake
    Reasons: zero-damage death, -37.99 pp ML impact, untraded death
+   Risk before death: high, 18.6%, top_10_percent
    Summary: died to phzy with m4a1 in a high-cost ML swing.
-
-2. Round 5 | T | high | mistake
-   Reasons: -31.25 pp ML impact, untraded death
-   Summary: died to HooXi with fiveseven in a high-cost ML swing.
 ```
 
----
+### 5-second death risk
 
-## Current status
+The death-risk model estimates whether a player is likely to die within the next 5 seconds. It uses round-state and spatial context, including:
 
-This project is currently an advanced MVP / experimental private coaching tool.
+- alive teammates
+- alive enemies
+- seconds remaining
+- bomb state
+- player HP
+- side
+- map
+- weapon
+- armor
+- equipment value
+- nearest teammate distance
+- nearest enemy distance
+- round phase
 
-Working end-to-end:
-
-- demo parsing and cache
-- player-level report
-- CT/T side breakdown
-- economy and clutch analysis
-- local benchmark comparison
-- benchmark-based feedback
-- ML event impact
-- player-level ML impact
-- evidence examples for tips
-- VOD review priority section
-
-Still experimental:
-
-- ML impact interpretation
-- benchmark quality depends on the size and quality of the local benchmark pool
-- report output is currently CLI/text-first
-- web/API layer is not implemented yet
-
----
-
-## Roadmap
-
-Planned improvements:
-
-- structured JSON report export
-- FastAPI backend
-- web dashboard
-- match history browser
-- richer round timeline viewer
-- better ML features, including equipment and HP state
-- player-specific trend tracking across matches
-- more robust VOD review indexing
-- optional frontend visualizations for impact swings and benchmark percentiles
-
----
-
-## Notes
-
-The benchmark system is local by design. Percentiles describe how a player compares to the current local benchmark pool, not to the entire global CS2 player population.
-
-The ML impact model estimates changes in round win probability. It should be treated as an assistive signal for review, not as an absolute truth.
-
----
-
-## Repository description
-
-Private CS2 demo analysis and coaching tool with local benchmarks, ML-based round impact, evidence-backed feedback, and VOD review priorities.
-
----
-
-## Suggested GitHub topics
+Risk labels:
 
 ```text
-counter-strike-2
-cs2
-cs2-demo
-demo-analysis
-esports-analytics
-game-analytics
-python
-polars
-machine-learning
-lightgbm
-awpy
-demoparser2
-sports-analytics
-coaching-tool
-vod-review
+low
+medium
+high
+critical
 ```
+
+Risk buckets:
+
+```text
+normal
+top_20_percent
+top_10_percent
+top_5_percent
+top_1_percent
+```
+
+### Risk explanation
+
+Risk predictions are summarized in plain language so the report does not only give a score.
+
+Example:
+
+```text
+Risk explanation: low HP, enemy close, teammate nearby but duel still high-risk, model marked this as top-tier risk
+```
+
+### Risk-aware Decision Simulation
+
+Decision Simulation is an MVP layer that suggests safer alternatives for high-priority VOD moments.
+
+Example:
+
+```text
+Actual: died to HooXi with fiveseven in a high-cost ML swing.
+Risk before death: critical, 21.1%
+score -0.61
+
+Better alternatives:
+- wait_for_trade | score +0.85 | keeps trade possibility alive
+- fall_back | score +0.75 | avoids repeating a high-cost ML death
+- hold_angle | score +0.25 | reduces isolation risk
+```
+
+---
+
+## Project structure
+
+```text
+.
+├── src/
+│   ├── main.py
+│   ├── Parser.py
+│   ├── Analyser.py
+│   ├── report_builder.py
+│   ├── benchmarks.py
+│   ├── sectors/
+│   │   ├── overall.py
+│   │   ├── economy.py
+│   │   ├── clutch.py
+│   │   ├── round_timeline.py
+│   │   ├── feedback.py
+│   │   └── decision_simulator.py
+│   └── ml/
+│       ├── build_dataset.py
+│       ├── train_lgbm.py
+│       ├── evaluate_impact.py
+│       ├── evaluate_player_impact.py
+│       ├── build_situations.py
+│       ├── build_all_situations.py
+│       ├── build_decision_snapshots.py
+│       ├── train_death_risk_lgbm.py
+│       ├── train_death_risk_timeseries_lgbm.py
+│       └── predict_death_risk_timeseries.py
+├── data/
+│   ├── reports/
+│   ├── ml/
+│   └── situations/
+├── docs/
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## ML pipeline overview
+
+The ML workflow is currently built around a pro-baseline approach:
+
+```text
+demo data
+→ event snapshots
+→ round win model
+→ event impact scoring
+→ player impact report
+→ situations dataset
+→ decision snapshots
+→ time-sampled death-risk model
+→ risk labels/buckets
+→ report integration
+```
+
+Main ML components:
+
+- round win probability model
+- event impact evaluation
+- player-level impact aggregation
+- situation extraction
+- decision snapshot generation
+- 5-second death-risk model
+- death-risk prediction export
+
+---
+
+## Development notes
+
+Before committing changes, run:
+
+```bash
+python -m compileall -q src
+```
+
+Basic smoke test:
+
+```bash
+cd src
+py main.py
+```
+
+Expected success signals:
+
+```text
+Structured report valid | sections=13
+Structured report exported | path=data/reports/<match_id>_<steamid>_structured_report.json
+```
+
+---
+
+## Release history
+
+### v1.0.0-coach-mvp
+
+First complete Coach MVP release.
+
+Highlights:
+
+- cached CS2 demo analysis
+- player performance report
+- local benchmark comparison
+- evidence-backed feedback tips
+- experimental ML impact scoring
+- VOD review priority ranking
+- 5-second death-risk estimation
+- risk explanations
+- risk-aware decision simulation
+- Coach Summary v1
+- structured JSON report export for API/frontend usage
+
+---
+
+## Recommended interpretation
+
+This project is best understood as:
+
+```text
+a CS2 post-match coaching engine
+```
+
+rather than:
+
+```text
+a stats parser
+```
+
+The current MVP is strongest at:
+
+- finding review-worthy rounds
+- explaining costly deaths
+- highlighting repeated weaknesses
+- surfacing strong plays
+- ranking VOD priorities
+- producing structured report data for a future UI
 
 ---
 
 ## License
 
-No license has been specified yet.
+Add a license before publishing or sharing the repository widely.
+
+Possible options:
+
+- MIT License if you want a simple permissive open-source license
+
+---
+
+## Status
+
+```text
+Coach MVP complete.
+```
