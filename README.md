@@ -1,10 +1,20 @@
 # CS2 Demo Coach
-
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![Status](https://img.shields.io/badge/status-Coach%20MVP-green)
 ![Release](https://img.shields.io/badge/release-v1.0.0--coach--mvp-purple)
 ![ML](https://img.shields.io/badge/ML-LightGBM-orange)
 ![Game](https://img.shields.io/badge/game-CS2-yellow)
+
+
+<p align="center">
+  <img
+    src="https://github.com/user-attachments/assets/c6caeac4-e9d6-4019-aea4-e77c286221c4"
+    alt="CS2 Demo Coach logo"
+    width="300"
+    height="300"
+  />
+</p>
+
 
 CS2 Demo Coach is a post-match analysis tool for Counter-Strike 2 demos. It takes a parsed demo, focuses on one selected player, and turns the match into a practical coaching report with stats, benchmarks, ML-based impact estimates, VOD review priorities, death-risk context, and suggested decision alternatives.
 
