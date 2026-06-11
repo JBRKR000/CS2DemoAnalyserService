@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 import re
 from typing import Any
 
@@ -907,6 +908,740 @@ def build_vod_review_priority(report_data: dict[str, Any], top_n: int = 5) -> li
     ]
 
 
+# --- Coach Summary v1 -------------------------------------------------------
+# A short, product-facing layer that distils the existing report into five
+# coach-style bullets. It only reads data already produced by other sections
+# (feedback tips, benchmark evaluations, impact stats, VOD review priority,
+# decision simulation, ML impact, death risk) and never recomputes them.
+
+_COACH_WEAKNESS_SENTENCES = {
+    "untraded_death_rate": "Too many costly deaths happen outside trade range.",
+    "deaths_with_0_damage": "Too many deaths happen before you create any impact.",
+    "deaths_under_40_damage": "Too many deaths happen before you create useful damage.",
+    "early_deaths": "Too many early deaths put your team behind.",
+    "opening_duel_win_pct": "Opening duel efficiency needs improvement.",
+    "kast": "KAST is below the benchmark pool.",
+    "adr": "Round damage impact is below the benchmark pool.",
+    "hs_percent": "Headshot consistency is below the benchmark pool.",
+    "kpr": "Kill pace is below the benchmark pool.",
+    "full_buy_win_rate": "Full-buy conversion is below the benchmark pool.",
+    "force_win_rate": "Force-buy conversion is below the benchmark pool.",
+    "clutch_win_rate": "Clutch conversion is below the benchmark pool.",
+}
+
+_COACH_STRENGTH_SENTENCES = {
+    "adr": "Round damage impact is a strength.",
+    "kast": "Round survival/trade value is strong compared with the benchmark pool.",
+    "kpr": "Kill pace is strong compared with the benchmark pool.",
+    "hs_percent": "Headshot consistency is strong.",
+    "opening_duel_win_pct": "Opening duel efficiency is strong.",
+    "full_buy_win_rate": "Full-buy conversion is strong.",
+    "force_win_rate": "Force-buy conversion is strong.",
+    "clutch_win_rate": "Clutch conversion is strong.",
+    "trade_kills": "Trade conversion is a strength.",
+}
+
+_COACH_PRACTICE_SENTENCES = {
+    "untraded_death_rate": "Play 10 review rounds focusing only on teammate distance before contact.",
+    "deaths_with_0_damage": "Before every first contact, require utility, trade timing, or off-angle advantage.",
+    "deaths_under_40_damage": "Before every first contact, require utility, trade timing, or off-angle advantage.",
+    "hs_percent": "Run 10 minutes of head-height pathing and first-bullet discipline.",
+    "clutch_win_rate": "Review 1vX rounds and mark every missed reposition timing.",
+    "full_buy_win_rate": "Review full-buy losses and check utility usage before final contact.",
+    "force_win_rate": "Review full-buy losses and check utility usage before final contact.",
+    "opening_duel_win_pct": "Review opening deaths and tag whether contact had utility or teammate timing.",
+}
+
+_COACH_PRACTICE_FALLBACK = (
+    "Review the top 5 VOD rounds and mark teammate distance before every first contact."
+)
+
+_COACH_DECISION_PATTERN_SENTENCES = {
+    "fall_back": "You often take fights where backing off would preserve round equity.",
+    "wait_for_trade": "Your costly deaths often happen before teammate trade timing is ready.",
+    "hold_angle": "You may be over-peeking instead of holding safer contact.",
+    "play_time": "Late-round deaths suggest you should play time more often.",
+}
+
+_COACH_DECISION_PATTERN_PRIORITY = ("fall_back", "wait_for_trade", "hold_angle", "play_time")
+
+
+def _coach_benchmark_evals(benchmarks: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten benchmark evaluations into a list of rated metric entries.
+
+    Only entries with a real rating (not 'unknown' and without a blocking
+    reason) and a numeric percentile are returned, so callers can pick the
+    lowest/highest percentile without re-validating each entry.
+    """
+    evals: list[dict[str, Any]] = []
+    for side_key in ("all", "ct", "t"):
+        side_evals = benchmarks.get(side_key)
+        if not isinstance(side_evals, dict):
+            continue
+        for metric_key, evaluation in side_evals.items():
+            if not isinstance(evaluation, dict):
+                continue
+            rating = str(evaluation.get("rating") or "unknown")
+            if rating == "unknown" or evaluation.get("reason") is not None:
+                continue
+            percentile = evaluation.get("percentile")
+            if not isinstance(percentile, (int, float)) or isinstance(percentile, bool):
+                continue
+            metric_name = (
+                evaluation.get("metric")
+                if isinstance(evaluation.get("metric"), str)
+                else str(metric_key)
+            )
+            evals.append({"metric": metric_name, "rating": rating, "percentile": float(percentile)})
+    return evals
+
+
+def _coach_main_weakness(
+    feedback: list[dict[str, Any]],
+    benchmarks: dict[str, Any],
+    vod: list[dict[str, Any]],
+    ml_impact: dict[str, Any],
+) -> tuple[str, str]:
+    """Return (sentence, metric) for the dominant weakness.
+
+    Priority: critical tip -> warning tip -> lowest benchmark percentile ->
+    largest negative VOD/ML issue.
+    """
+    for severity in ("critical", "warning"):
+        for tip in feedback:
+            if str(tip.get("severity")) == severity:
+                metric = str(tip.get("metric") or "")
+                sentence = _COACH_WEAKNESS_SENTENCES.get(metric) or _safe_text(tip.get("title"))
+                return sentence, metric
+
+    negative_evals = [e for e in _coach_benchmark_evals(benchmarks) if e["rating"] in {"critical", "warning"}]
+    if negative_evals:
+        worst = min(negative_evals, key=lambda e: (e["percentile"], e["metric"]))
+        metric = worst["metric"]
+        sentence = _COACH_WEAKNESS_SENTENCES.get(metric) or f"{metric} is below the benchmark pool."
+        return sentence, metric
+
+    for item in vod:
+        if str(item.get("review_type")) in {"mistake", "mixed"}:
+            reasons_raw = item.get("reasons")
+            reasons = [str(r).strip() for r in reasons_raw if str(r).strip()] if isinstance(reasons_raw, list) else []
+            reason = reasons[0] if reasons else ""
+            round_num = _format_number(item.get("round_num"), digits=0)
+            if reason:
+                return f"Round {round_num} keeps surfacing a recurring issue: {reason}.", ""
+            break
+
+    net_ml = ml_impact.get("net_ml_impact")
+    if isinstance(net_ml, (int, float)) and not isinstance(net_ml, bool) and net_ml < 0.0:
+        return "Net ML impact across the match is negative.", ""
+
+    return "No dominant weakness detected in this match.", ""
+
+
+def _coach_best_strength(
+    feedback: list[dict[str, Any]],
+    benchmarks: dict[str, Any],
+    ml_impact: dict[str, Any],
+    overall: dict[str, Any],
+) -> str:
+    """Return a one-line best-strength sentence.
+
+    Priority: good tip -> highest benchmark percentile -> positive ML impact ->
+    strong raw KAST.
+    """
+    for tip in feedback:
+        if str(tip.get("severity")) == "good":
+            metric = str(tip.get("metric") or "")
+            return _COACH_STRENGTH_SENTENCES.get(metric) or _safe_text(tip.get("title"))
+
+    positive_evals = [e for e in _coach_benchmark_evals(benchmarks) if e["rating"] in {"good", "excellent"}]
+    if positive_evals:
+        best = max(positive_evals, key=lambda e: (e["percentile"], e["metric"]))
+        metric = best["metric"]
+        return _COACH_STRENGTH_SENTENCES.get(metric) or f"{metric} is strong compared with the benchmark pool."
+
+    net_ml = ml_impact.get("net_ml_impact")
+    if isinstance(net_ml, (int, float)) and not isinstance(net_ml, bool) and net_ml > 0.0:
+        return "Net positive kill impact across the match."
+
+    kast = overall.get("kast")
+    if isinstance(kast, (int, float)) and not isinstance(kast, bool) and kast >= 70.0:
+        return "Round survival/trade value (KAST) held up well this match."
+
+    return "No standout strength detected in this match."
+
+
+def _coach_top_vod_focus(vod: list[dict[str, Any]]) -> str | None:
+    """Return the first VOD priority round as a single focus line, or None."""
+    for item in vod:
+        round_num = _format_number(item.get("round_num"), digits=0)
+        reasons_raw = item.get("reasons")
+        reasons = [str(r).strip() for r in reasons_raw if str(r).strip()] if isinstance(reasons_raw, list) else []
+        parts = reasons[:2]
+        label = _safe_text(item.get("death_risk_label"), "")
+        if label and label != "-" and not any("death risk" in part.lower() for part in parts):
+            parts.append(f"{label.lower()} death risk")
+        detail = ", ".join(parts) if parts else _safe_text(item.get("summary"))
+        return f"Round {round_num}: {detail}"
+    return None
+
+
+def _coach_decision_pattern(decision_simulation: Any, vod: list[dict[str, Any]]) -> str | None:
+    """Infer the most repeated decision pattern from the simulation.
+
+    Falls back to VOD death reasons when no simulation is available.
+    """
+    counts: dict[str, int] = {}
+    if isinstance(decision_simulation, list):
+        for sim in decision_simulation:
+            if not isinstance(sim, dict):
+                continue
+            alternatives = sim.get("alternatives")
+            if not isinstance(alternatives, list) or not alternatives:
+                continue
+            top = alternatives[0]
+            if isinstance(top, dict):
+                label = str(top.get("label") or "")
+                if label in _COACH_DECISION_PATTERN_SENTENCES:
+                    counts[label] = counts.get(label, 0) + 1
+
+    if counts:
+        best = max(_COACH_DECISION_PATTERN_PRIORITY, key=lambda label: counts.get(label, 0))
+        if counts.get(best, 0) > 0:
+            return _COACH_DECISION_PATTERN_SENTENCES[best]
+
+    for item in vod:
+        reasons_raw = item.get("reasons")
+        reasons = [str(r).lower() for r in reasons_raw] if isinstance(reasons_raw, list) else []
+        if any("untraded death" in reason for reason in reasons):
+            return "Costly deaths often happen outside trade range."
+        if any("zero-damage death" in reason for reason in reasons):
+            return "Several deaths happen before creating impact."
+
+    return None
+
+
+def _coach_practice_focus(weakness_metric: str, feedback: list[dict[str, Any]]) -> str:
+    """Pick one concrete practice habit, keyed off the main weakness metric."""
+    if weakness_metric in _COACH_PRACTICE_SENTENCES:
+        return _COACH_PRACTICE_SENTENCES[weakness_metric]
+
+    for tip in feedback:
+        if str(tip.get("severity")) in {"critical", "warning"}:
+            metric = str(tip.get("metric") or "")
+            if metric in _COACH_PRACTICE_SENTENCES:
+                return _COACH_PRACTICE_SENTENCES[metric]
+
+    return _COACH_PRACTICE_FALLBACK
+
+
+def build_coach_summary(report_data: dict[str, Any]) -> dict[str, Any]:
+    """Build the COACH SUMMARY v1 structured layer from existing report data.
+
+    Returns a dict with main_weakness, best_strength, top_vod_focus,
+    decision_pattern and practice_focus. Every field renders even when the
+    underlying section is empty (top_vod_focus/decision_pattern may be None).
+    """
+    safe_report = _safe_dict(report_data)
+    feedback = [tip for tip in safe_report.get("feedback", []) if isinstance(tip, dict)]
+    benchmarks = _safe_dict(safe_report.get("benchmarks"))
+    overall = _safe_dict(safe_report.get("overall"))
+    ml_impact = _safe_dict(safe_report.get("ml_impact"))
+    vod_raw = safe_report.get("vod_review_priority")
+    vod = [item for item in vod_raw if isinstance(item, dict)] if isinstance(vod_raw, list) else []
+    decision_simulation = safe_report.get("decision_simulation")
+
+    main_weakness, weakness_metric = _coach_main_weakness(feedback, benchmarks, vod, ml_impact)
+
+    return {
+        "main_weakness": main_weakness,
+        "best_strength": _coach_best_strength(feedback, benchmarks, ml_impact, overall),
+        "top_vod_focus": _coach_top_vod_focus(vod),
+        "decision_pattern": _coach_decision_pattern(decision_simulation, vod),
+        "practice_focus": _coach_practice_focus(weakness_metric, feedback),
+    }
+
+
+# --- Structured report (API / frontend) ------------------------------------
+# A stable, JSON-serialisable view of the report. It only re-shapes data that
+# the existing sections already produced (no scoring, no recomputation) and
+# converts numpy/polars scalars into native Python types so the result can be
+# returned by an API or rendered by a frontend.
+
+_STRUCTURED_SCHEMA_VERSION = "1.0"
+_STRUCTURED_REPORT_TYPE = "cs2_coach_report"
+_STRUCTURED_TOP_LEVEL_KEYS = (
+    "meta",
+    "player",
+    "overall",
+    "impact",
+    "side_breakdown",
+    "economy",
+    "clutch",
+    "benchmarks",
+    "ml_impact",
+    "tips",
+    "vod_review_priority",
+    "decision_simulation",
+    "coach_summary",
+)
+
+
+def _json_safe(value: Any) -> Any:
+    """Recursively convert a value into JSON-safe native Python types.
+
+    Handles numpy/polars scalars (anything exposing ``.item()``) and nested
+    dicts/lists. Falls back to ``str`` for anything otherwise unserialisable.
+    """
+    if value is None or isinstance(value, (str, bool)):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return value
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+
+    item_getter = getattr(value, "item", None)
+    if callable(item_getter):
+        try:
+            return _json_safe(item_getter())
+        except Exception:
+            return str(value)
+    return str(value)
+
+
+def _structured_pp(value: Any) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return round(float(value) * 100.0, 2)
+    return None
+
+
+def _structured_risk_before_death(item: dict[str, Any]) -> dict[str, Any] | None:
+    """Build the risk_before_death object for a VOD/decision entry, or None."""
+    label = _safe_text(item.get("death_risk_label"), "")
+    if not label or label == "-":
+        return None
+
+    context = item.get("death_risk_context")
+    context_dict = context if isinstance(context, dict) else {}
+    probability = item.get("death_risk_5s")
+    probability_native = (
+        float(probability)
+        if isinstance(probability, (int, float)) and not isinstance(probability, bool)
+        else None
+    )
+    probability_percent = round(probability_native * 100.0, 1) if probability_native is not None else None
+    explanation = build_death_risk_explanation(context_dict, item.get("death_risk_label"))
+
+    return {
+        "label": label,
+        "probability": probability_native,
+        "probability_percent": probability_percent,
+        "bucket": _json_safe(item.get("death_risk_bucket")),
+        "nearest_enemy_distance": _json_safe(context_dict.get("nearest_enemy_distance")),
+        "nearest_teammate_distance": _json_safe(context_dict.get("nearest_teammate_distance")),
+        "player_hp": _json_safe(context_dict.get("player_hp")),
+        "weapon": format_risk_weapon(context_dict, item),
+        "explanation": explanation or None,
+    }
+
+
+def _structured_ml_event(row: dict[str, Any]) -> dict[str, Any]:
+    killer = _safe_text(row.get("killer_name"), "")
+    victim = _safe_text(row.get("victim_name"), "")
+    weapon = _safe_text(row.get("weapon"), "")
+    return {
+        "round_num": _json_safe(row.get("round_num")),
+        "side": _json_safe(row.get("side")),
+        "summary": _format_ml_event(row),
+        "impact_pp": _structured_pp(row.get("win_prob_delta")),
+        "killer": killer or None,
+        "victim": victim or None,
+        "weapon": weapon or None,
+    }
+
+
+def _structured_ml_event_list(rows: Any) -> list[dict[str, Any]]:
+    return [_structured_ml_event(row) for row in _safe_rows(rows)][:5]
+
+
+def _structured_side(impact: dict[str, Any]) -> dict[str, Any] | None:
+    if not impact:
+        return None
+    return {
+        "untraded_deaths": _json_safe(impact.get("untraded_deaths")),
+        "total_deaths": _json_safe(impact.get("deaths")),
+        "untraded_death_rate": _json_safe(impact.get("untraded_death_rate")),
+        "opening_duel_win_pct": _json_safe(impact.get("opening_duel_win_pct")),
+        "trade_kills": _json_safe(impact.get("trade_kills")),
+        "early_deaths": _json_safe(impact.get("early_deaths")),
+    }
+
+
+def _structured_meta(match: dict[str, Any], report_meta: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": _STRUCTURED_SCHEMA_VERSION,
+        "report_type": _STRUCTURED_REPORT_TYPE,
+        "map_name": _json_safe(match.get("map_name")),
+        "match_id": _json_safe(match.get("match_id")),
+        "generated_at": _json_safe(report_meta.get("generated_at")),
+    }
+
+
+def _structured_benchmarks(benchmarks: dict[str, Any]) -> dict[str, Any]:
+    benchmark_all = _safe_dict(benchmarks.get("all"))
+    metrics: list[dict[str, Any]] = []
+    for metric_key, evaluation in benchmark_all.items():
+        if not isinstance(evaluation, dict):
+            continue
+        metrics.append(
+            {
+                "metric": _json_safe(evaluation.get("metric") or metric_key),
+                "value": _json_safe(evaluation.get("value")),
+                "percentile": _json_safe(evaluation.get("percentile")),
+                "rating": _json_safe(evaluation.get("rating")),
+                "context": _json_safe(evaluation.get("context")),
+                "reason": _json_safe(evaluation.get("reason")),
+            }
+        )
+    metrics.sort(key=lambda entry: str(entry.get("metric") or ""))
+
+    pools: list[dict[str, Any]] = []
+    metric_details = benchmarks.get("metric_details")
+    if isinstance(metric_details, list):
+        for detail in metric_details:
+            if not isinstance(detail, dict):
+                continue
+            pools.append(
+                {
+                    "metric": _json_safe(detail.get("metric")),
+                    "context": _json_safe(detail.get("context")),
+                    "sample_size": _json_safe(detail.get("sample_size")),
+                    "percentile": _json_safe(detail.get("percentile")),
+                    "rating": _json_safe(detail.get("rating")),
+                    "reason": _json_safe(detail.get("reason")),
+                }
+            )
+
+    return {
+        "status": _json_safe(benchmarks.get("status")),
+        "context": _json_safe(benchmarks.get("selected_context")),
+        "metrics_evaluated": _json_safe(benchmarks.get("evaluated_metrics_count")),
+        "metrics": metrics,
+        "pools": pools,
+    }
+
+
+def _structured_ml_impact(ml_impact: Any) -> dict[str, Any]:
+    if not isinstance(ml_impact, dict):
+        return {"status": "missing"}
+
+    kill_count = int(_to_float(ml_impact.get("kill_count"), 0.0))
+    death_count = int(_to_float(ml_impact.get("death_count"), 0.0))
+    if kill_count <= 0 and death_count <= 0:
+        return {"status": "missing"}
+
+    return {
+        "status": "available",
+        "net_impact_score": _json_safe(ml_impact.get("net_ml_impact")),
+        "kill_impact_score": _json_safe(ml_impact.get("total_kill_impact")),
+        "death_impact_score": _json_safe(ml_impact.get("total_death_impact")),
+        "average_kill_impact_pp": _structured_pp(ml_impact.get("avg_kill_impact")),
+        "average_death_impact_pp": _structured_pp(ml_impact.get("avg_death_impact")),
+        "best_kills": _structured_ml_event_list(ml_impact.get("best_kills")),
+        "worst_deaths": _structured_ml_event_list(ml_impact.get("worst_deaths")),
+        "low_impact_kills": _structured_ml_event_list(ml_impact.get("low_impact_kills")),
+    }
+
+
+def build_structured_report(report_data: dict[str, Any]) -> dict[str, Any]:
+    """Build a stable, JSON-serialisable structured report from report data.
+
+    Re-shapes the already-computed sections into a fixed top-level schema. All
+    values are converted to native Python types so the result is safe to return
+    through an API or serialise to JSON.
+    """
+    safe_report = _safe_dict(report_data)
+    match = _safe_dict(safe_report.get("match"))
+    player = _safe_dict(safe_report.get("player"))
+    overall = _safe_dict(safe_report.get("overall"))
+    impact = _safe_dict(safe_report.get("impact"))
+    economy = _safe_dict(safe_report.get("economy"))
+    clutch = _safe_dict(safe_report.get("clutch"))
+    benchmarks = _safe_dict(safe_report.get("benchmarks"))
+    report_meta = _safe_dict(safe_report.get("meta"))
+    side_breakdown = _safe_dict(safe_report.get("side_breakdown"))
+    ct_impact = _safe_dict(_safe_dict(side_breakdown.get("CT")).get("impact"))
+    t_impact = _safe_dict(_safe_dict(side_breakdown.get("T")).get("impact"))
+
+    feedback = [tip for tip in safe_report.get("feedback", []) if isinstance(tip, dict)]
+    vod_raw = safe_report.get("vod_review_priority")
+    vod = [item for item in vod_raw if isinstance(item, dict)] if isinstance(vod_raw, list) else []
+    decision_raw = safe_report.get("decision_simulation")
+    decision_simulation = (
+        [sim for sim in decision_raw if isinstance(sim, dict)] if isinstance(decision_raw, list) else []
+    )
+    coach_summary_raw = safe_report.get("coach_summary")
+    coach_summary = (
+        coach_summary_raw if isinstance(coach_summary_raw, dict) else build_coach_summary(safe_report)
+    )
+
+    structured_overall = {
+        "kills": _json_safe(overall.get("kills")),
+        "deaths": _json_safe(overall.get("deaths")),
+        "assists": _json_safe(overall.get("assists")),
+        "kpr": _json_safe(overall.get("kpr")),
+        "dpr": _json_safe(overall.get("dpr")),
+        "adr": _json_safe(overall.get("adr")),
+        "kast": _json_safe(overall.get("kast")),
+        "hs_kills": _json_safe(overall.get("hs_kills")),
+        "hs_percent": _json_safe(overall.get("hs_percent")),
+    }
+
+    structured_impact = {
+        "untraded_deaths": _json_safe(impact.get("untraded_deaths")),
+        "total_deaths": _json_safe(impact.get("deaths")),
+        "untraded_death_rate": _json_safe(impact.get("untraded_death_rate")),
+        "opening_duels": _json_safe(impact.get("opening_duels")),
+        "opening_duel_win_pct": _json_safe(impact.get("opening_duel_win_pct")),
+        "trade_kills": _json_safe(impact.get("trade_kills")),
+        "avg_damage_before_death": _json_safe(impact.get("avg_damage_before_death")),
+        "zero_damage_deaths": _json_safe(impact.get("deaths_with_0_damage")),
+        "deaths_under_40_damage": _json_safe(impact.get("deaths_under_40_damage")),
+        "death_timing": {
+            "early": _json_safe(impact.get("early_deaths")),
+            "mid": _json_safe(impact.get("mid_deaths")),
+            "late": _json_safe(impact.get("late_deaths")),
+        },
+    }
+
+    structured_economy = {
+        "full_buy_win_rate": _json_safe(economy.get("full_buy_win_rate")),
+        "force_win_rate": _json_safe(economy.get("force_win_rate")),
+        "eco_kills": _json_safe(economy.get("eco_kills")),
+        "broken_economy_rounds": _json_safe(economy.get("broken_economy_rounds")),
+        "save_rounds": _json_safe(economy.get("save_rounds")),
+    }
+
+    structured_clutch = {
+        "total_clutches": _json_safe(clutch.get("total_clutches")),
+        "clutches_won": _json_safe(clutch.get("clutches_won")),
+        "win_rate": _json_safe(clutch.get("win_rate")),
+        "v1": {"won": _json_safe(clutch.get("v1_won")), "total": _json_safe(clutch.get("v1_total"))},
+        "v2": {"won": _json_safe(clutch.get("v2_won")), "total": _json_safe(clutch.get("v2_total"))},
+        "v3plus": {
+            "won": _json_safe(clutch.get("v3plus_won")),
+            "total": _json_safe(clutch.get("v3plus_total")),
+        },
+    }
+
+    structured_tips = [
+        {
+            "severity": _json_safe(tip.get("severity")),
+            "category": _json_safe(tip.get("category")),
+            "title": _json_safe(tip.get("title")),
+            "message": _json_safe(tip.get("message")),
+            "metric": _json_safe(tip.get("metric")),
+            "value": _json_safe(tip.get("value")),
+            "examples": [_json_safe(example) for example in tip.get("evidence")]
+            if isinstance(tip.get("evidence"), list)
+            else [],
+        }
+        for tip in feedback
+    ]
+
+    _vod_type_map = {"strength": "positive"}
+    structured_vod: list[dict[str, Any]] = []
+    risk_by_round: dict[int, dict[str, Any]] = {}
+    for rank, item in enumerate(vod, start=1):
+        review_type = str(item.get("review_type") or "")
+        reasons_raw = item.get("reasons")
+        reasons = (
+            [_json_safe(reason) for reason in reasons_raw] if isinstance(reasons_raw, list) else []
+        )
+        risk = _structured_risk_before_death(item)
+        round_key = _safe_round_num(item.get("round_num"))
+        if risk is not None and round_key > 0 and round_key not in risk_by_round:
+            risk_by_round[round_key] = risk
+        structured_vod.append(
+            {
+                "rank": rank,
+                "round_num": _json_safe(item.get("round_num")),
+                "side": _json_safe(item.get("side")),
+                "severity": _json_safe(item.get("priority")),
+                "type": _vod_type_map.get(review_type, review_type),
+                "reasons": reasons,
+                "summary": _json_safe(item.get("summary")),
+                "risk_before_death": risk,
+            }
+        )
+
+    structured_decisions: list[dict[str, Any]] = []
+    for rank, sim in enumerate(decision_simulation, start=1):
+        actual_decision = _safe_dict(sim.get("actual_decision"))
+        round_key = _safe_round_num(sim.get("round_num"))
+        alternatives_raw = sim.get("alternatives")
+        alternatives: list[dict[str, Any]] = []
+        if isinstance(alternatives_raw, list):
+            for alt in alternatives_raw:
+                if not isinstance(alt, dict):
+                    continue
+                alt_reasons = alt.get("reasons") if isinstance(alt.get("reasons"), list) else []
+                alternatives.append(
+                    {
+                        "name": _json_safe(alt.get("label")),
+                        "score": _json_safe(alt.get("score")),
+                        "reason": _safe_text(alt_reasons[0], "") or None if alt_reasons else None,
+                    }
+                )
+        structured_decisions.append(
+            {
+                "rank": rank,
+                "round_num": _json_safe(sim.get("round_num")),
+                "side": _json_safe(sim.get("side")),
+                "actual": {
+                    "summary": _json_safe(sim.get("actual_summary") or sim.get("original_summary")),
+                    "score": _json_safe(actual_decision.get("score")),
+                    "risk_before_death": risk_by_round.get(round_key),
+                },
+                "alternatives": alternatives,
+            }
+        )
+
+    structured_coach_summary = {
+        "main_weakness": _json_safe(coach_summary.get("main_weakness")),
+        "best_strength": _json_safe(coach_summary.get("best_strength")),
+        "top_vod_focus": _json_safe(coach_summary.get("top_vod_focus")),
+        "decision_pattern": _json_safe(coach_summary.get("decision_pattern")),
+        "practice_focus": _json_safe(coach_summary.get("practice_focus")),
+    }
+
+    return {
+        "meta": _structured_meta(match, report_meta),
+        "player": {
+            "steamid": _json_safe(player.get("steamid")),
+            "name": _json_safe(player.get("name")),
+            "start_side": _json_safe(player.get("start_side")),
+            "rounds_played": _json_safe(match.get("rounds_played")),
+        },
+        "overall": structured_overall,
+        "impact": structured_impact,
+        "side_breakdown": {
+            "ct": _structured_side(ct_impact),
+            "t": _structured_side(t_impact),
+        },
+        "economy": structured_economy,
+        "clutch": structured_clutch,
+        "benchmarks": _structured_benchmarks(benchmarks),
+        "ml_impact": _structured_ml_impact(safe_report.get("ml_impact")),
+        "tips": structured_tips,
+        "vod_review_priority": structured_vod,
+        "decision_simulation": structured_decisions,
+        "coach_summary": structured_coach_summary,
+    }
+
+
+def validate_structured_report(report: dict[str, Any]) -> list[str]:
+    """Validate the structured report shape. Returns a list of problems.
+
+    An empty list means the report passed all checks.
+    """
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return ["structured_report is not a dict"]
+
+    for key in _STRUCTURED_TOP_LEVEL_KEYS:
+        if key not in report:
+            problems.append(f"missing top-level key: {key}")
+
+    player = report.get("player")
+    if not isinstance(player, dict):
+        problems.append("player is not a dict")
+    else:
+        if player.get("steamid") in (None, ""):
+            problems.append("player.steamid is missing")
+        if player.get("name") in (None, ""):
+            problems.append("player.name is missing")
+
+    if not isinstance(report.get("overall"), dict):
+        problems.append("overall is not a dict")
+    if not isinstance(report.get("tips"), list):
+        problems.append("tips is not a list")
+    if not isinstance(report.get("vod_review_priority"), list):
+        problems.append("vod_review_priority is not a list")
+    if not isinstance(report.get("decision_simulation"), list):
+        problems.append("decision_simulation is not a list")
+    if not isinstance(report.get("coach_summary"), dict):
+        problems.append("coach_summary is not a dict")
+
+    return problems
+
+
+def _sanitize_filename_part(value: Any, fallback: str) -> str:
+    """Reduce a value to a safe filename fragment.
+
+    Keeps letters/digits/underscore/hyphen and replaces everything else with
+    an underscore. Returns ``fallback`` when nothing usable remains.
+    """
+    text = str(value if value is not None else "").strip()
+    if not text:
+        return fallback
+    cleaned = re.sub(r"[^0-9A-Za-z_-]", "_", text)
+    cleaned = cleaned.strip("_")
+    return cleaned if cleaned else fallback
+
+
+def write_structured_report_json(
+    report: dict[str, Any],
+    output_dir: "str | Path" = "data/reports",
+) -> "Path":
+    """Write the structured report to a pretty JSON file and return its Path.
+
+    Builds the structured report from ``report`` if it is not already present.
+    The filename is ``<match_id>_<steamid>_structured_report.json`` with unsafe
+    characters sanitised and ``unknown_match`` / ``unknown_player`` fallbacks.
+    After writing, the file is re-read and checked for the core top-level keys.
+    """
+    import json
+    from pathlib import Path
+
+    safe_report = _safe_dict(report)
+    structured = safe_report.get("structured_report")
+    if not isinstance(structured, dict):
+        structured = build_structured_report(safe_report)
+
+    meta = _safe_dict(structured.get("meta"))
+    player = _safe_dict(structured.get("player"))
+    match_part = _sanitize_filename_part(meta.get("match_id"), "unknown_match")
+    steam_part = _sanitize_filename_part(player.get("steamid"), "unknown_player")
+    filename = f"{match_part}_{steam_part}_structured_report.json"
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    file_path = output_path / filename
+    file_path.write_text(json.dumps(structured, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    try:
+        with file_path.open("r", encoding="utf-8") as handle:
+            loaded = json.load(handle)
+        missing = [key for key in ("meta", "player", "overall", "coach_summary") if key not in loaded]
+        if missing:
+            logging.getLogger(__name__).warning(
+                "Structured report file missing keys after write | path=%s | missing=%s",
+                file_path,
+                ", ".join(missing),
+            )
+    except (OSError, ValueError) as error:
+        logging.getLogger(__name__).warning(
+            "Structured report re-read validation failed | path=%s | error=%s", file_path, error
+        )
+
+    return file_path
+
+
 def build_match_report(analysis: dict[str, Any]) -> dict[str, Any]:
     safe_analysis = _safe_dict(analysis)
 
@@ -1051,6 +1786,14 @@ def build_match_report(analysis: dict[str, Any]) -> dict[str, Any]:
         if decision_simulation:
             report["decision_simulation"] = decision_simulation
             analysis["decision_simulation"] = decision_simulation
+
+    coach_summary = build_coach_summary(report)
+    report["coach_summary"] = coach_summary
+    analysis["coach_summary"] = coach_summary
+
+    structured_report = build_structured_report(report)
+    report["structured_report"] = structured_report
+    analysis["structured_report"] = structured_report
     return report
 
 
@@ -1330,5 +2073,31 @@ def format_report_text(report: dict[str, Any]) -> str:
                     alt_reasons = alt.get("reasons") if isinstance(alt.get("reasons"), list) else []
                     alt_reason = str(alt_reasons[0]).strip() if alt_reasons else ""
                     lines.append(f"   - {alt_label} | score {alt_score_str} | {alt_reason}")
+
+    coach_summary_raw = safe_report.get("coach_summary")
+    coach_summary = (
+        coach_summary_raw if isinstance(coach_summary_raw, dict) else build_coach_summary(safe_report)
+    )
+    top_vod_focus = coach_summary.get("top_vod_focus")
+    decision_pattern = coach_summary.get("decision_pattern")
+
+    lines.append("")
+    lines.append("COACH SUMMARY")
+    lines.append("Main weakness:")
+    lines.append(f"- {_safe_text(coach_summary.get('main_weakness'))}")
+    lines.append("")
+    lines.append("Best strength:")
+    lines.append(f"- {_safe_text(coach_summary.get('best_strength'))}")
+    lines.append("")
+    lines.append("Top VOD focus:")
+    lines.append(f"- {_safe_text(top_vod_focus) if top_vod_focus else 'No VOD priority rounds available.'}")
+    lines.append("")
+    lines.append("Decision pattern:")
+    lines.append(
+        f"- {_safe_text(decision_pattern) if decision_pattern else 'No repeated decision pattern detected.'}"
+    )
+    lines.append("")
+    lines.append("Practice focus:")
+    lines.append(f"- {_safe_text(coach_summary.get('practice_focus'))}")
 
     return "\n".join(lines)

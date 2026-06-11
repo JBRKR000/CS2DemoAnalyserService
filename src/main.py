@@ -6,7 +6,12 @@ import colorlog
 from Analyser import load_demo_for_analysis, analyse_demo
 from benchmarks import MIN_BENCHMARK_POOL_SIZE
 from Parser import compute_file_sha256, get_demo
-from report_builder import build_match_report, format_report_text
+from report_builder import (
+    build_match_report,
+    format_report_text,
+    validate_structured_report,
+    write_structured_report_json,
+)
 
 
 def configure_logging(level: int = logging.INFO) -> None:
@@ -223,6 +228,19 @@ def main() -> None:
 
     report = build_match_report(analysis)
     logger.info("\n%s", format_report_text(report))
+
+    structured_report = report.get("structured_report", {})
+    logger.info("Structured report sections: %s", ", ".join(structured_report.keys()))
+    problems = validate_structured_report(structured_report)
+    if problems:
+        logger.warning("Structured report has %d problem(s): %s", len(problems), "; ".join(problems))
+    else:
+        logger.info("Structured report valid | sections=%d", len(structured_report))
+        try:
+            export_path = write_structured_report_json(report, output_dir=BASE_DIR / "data" / "reports")
+            logger.info("Structured report exported | path=%s", export_path)
+        except Exception as error:  # noqa: BLE001 - exporting must never break analysis
+            logger.warning("Structured report export failed | error=%s", error)
 
 
 if __name__ == "__main__":
